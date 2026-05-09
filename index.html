@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Atlas Securecheck — Website Security Auditor</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0a0c0f; --surface:#111418; --surface2:#181c22;
+  --border:#1e242c; --border2:#252d38;
+  --green:#00e676; --green-dim:#00e67622;
+  --amber:#ffab00; --amber-dim:#ffab0022;
+  --red:#ff3d57;   --red-dim:#ff3d5722;
+  --blue:#40c4ff;  --blue-dim:#40c4ff18;
+  --text:#e8edf2;  --text2:#7a8898; --text3:#4a5568;
+  --mono:'Space Mono',monospace; --sans:'Syne',sans-serif; --radius:6px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden;}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px);background-size:48px 48px;opacity:.35;pointer-events:none;z-index:0;}
+.wrap{position:relative;z-index:1;max-width:900px;margin:0 auto;padding:0 20px 80px;}
+
+header{padding:36px 0 28px;border-bottom:1px solid var(--border2);margin-bottom:36px;display:flex;align-items:center;justify-content:space-between;}
+.logo{display:flex;align-items:center;gap:12px;}
+.logo-icon{width:36px;height:36px;border:1.5px solid var(--green);border-radius:4px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:13px;color:var(--green);font-weight:700;}
+.logo-text{font-size:20px;font-weight:800;letter-spacing:-.5px;}
+.logo-text span{color:var(--green);}
+.logo-sub{font-family:var(--mono);font-size:10px;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-top:3px;}
+.settings-btn{background:transparent;border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);font-family:var(--mono);font-size:11px;padding:8px 14px;cursor:pointer;transition:all .15s;letter-spacing:.5px;}
+.settings-btn:hover{border-color:var(--amber);color:var(--amber);}
+
+.settings-panel{background:var(--surface);border:1px solid var(--amber);border-radius:8px;padding:22px;margin-bottom:24px;display:none;}
+.settings-panel.open{display:block;}
+.settings-title{font-family:var(--mono);font-size:11px;color:var(--amber);letter-spacing:2px;text-transform:uppercase;margin-bottom:16px;}
+.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.settings-field label{font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px;}
+.settings-field input{width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:12px;padding:9px 12px;outline:none;transition:border-color .2s;}
+.settings-field input:focus{border-color:var(--amber);}
+.settings-field input::placeholder{color:var(--text3);}
+.settings-note{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:12px;line-height:1.7;}
+.settings-note a{color:var(--blue);text-decoration:none;}
+.save-keys-btn{margin-top:14px;background:var(--amber);color:#000;border:none;border-radius:var(--radius);font-family:var(--sans);font-size:12px;font-weight:700;padding:9px 18px;cursor:pointer;}
+
+.input-zone{background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:22px;margin-bottom:24px;}
+.input-label{font-family:var(--mono);font-size:11px;color:var(--text2);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px;}
+.url-row{display:flex;gap:10px;margin-bottom:10px;}
+.url-input{flex:1;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:14px;padding:12px 16px;outline:none;transition:border-color .2s;}
+.url-input:focus{border-color:var(--green);}
+.url-input::placeholder{color:var(--text3);}
+.scan-btn{background:var(--green);color:#000;border:none;border-radius:var(--radius);font-family:var(--sans);font-size:13px;font-weight:700;padding:12px 24px;cursor:pointer;transition:opacity .15s,transform .1s;white-space:nowrap;}
+.scan-btn:hover{opacity:.88;}
+.scan-btn:active{transform:scale(.97);}
+.scan-btn:disabled{opacity:.4;cursor:not-allowed;transform:none;}
+.biz-row{display:flex;gap:10px;}
+.mini-input{flex:1;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-family:var(--sans);font-size:13px;padding:9px 14px;outline:none;}
+.mini-input:focus{border-color:var(--blue);}
+.mini-input::placeholder{color:var(--text3);}
+
+.src-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;}
+.src-tag{font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;letter-spacing:.5px;border:1px solid;}
+.src-active{color:var(--green);border-color:var(--green);background:var(--green-dim);}
+.src-key{color:var(--amber);border-color:var(--amber);background:var(--amber-dim);}
+.src-off{color:var(--text3);border-color:var(--border2);background:transparent;}
+
+.progress-zone{display:none;margin-bottom:28px;}
+.progress-zone.active{display:block;}
+.prog-bar-wrap{background:var(--surface);border:1px solid var(--border2);border-radius:4px;height:3px;overflow:hidden;margin-bottom:14px;}
+.prog-bar{height:100%;background:var(--green);border-radius:4px;width:0%;transition:width .5s ease;box-shadow:0 0 10px var(--green);}
+.prog-log{font-family:var(--mono);font-size:11px;color:var(--text2);min-height:40px;}
+.log-line{margin-bottom:3px;}
+.log-line.done{color:var(--green);}
+.log-line.done::before{content:'✓ ';}
+.log-line.active{color:var(--blue);}
+.log-line.active::before{content:'> ';}
+.log-line.warn{color:var(--amber);}
+.log-line.warn::before{content:'! ';}
+
+.api-panels{display:none;margin-bottom:24px;}
+.api-panels.active{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.api-card{background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:16px;}
+.api-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.api-card-name{font-family:var(--mono);font-size:11px;font-weight:700;}
+.api-grade{font-family:var(--mono);font-size:20px;font-weight:700;}
+.api-card-body{font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.7;}
+.api-stat{display:flex;justify-content:space-between;margin-bottom:4px;}
+.api-stat-val{color:var(--text);}
+.api-skip{font-family:var(--mono);font-size:10px;color:var(--text3);font-style:italic;}
+
+.score-card{display:none;}
+.score-card.active{display:block;}
+.score-header{display:flex;align-items:flex-start;justify-content:space-between;background:var(--surface);border:1px solid var(--border2);border-radius:8px 8px 0 0;padding:22px 26px;gap:20px;}
+.score-site{font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:4px;}
+.score-biz{font-size:20px;font-weight:800;letter-spacing:-.5px;}
+.score-ring-wrap{text-align:center;flex-shrink:0;}
+.score-ring{width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-direction:column;border:2.5px solid;margin-bottom:6px;}
+.score-num{font-family:var(--mono);font-size:26px;font-weight:700;line-height:1;}
+.score-label{font-family:var(--mono);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;}
+.score-grade{font-family:var(--mono);font-size:11px;}
+
+.checks-grid{background:var(--surface2);border:1px solid var(--border2);border-top:none;border-radius:0 0 8px 8px;overflow:hidden;margin-bottom:20px;}
+.check-item{display:flex;align-items:flex-start;gap:14px;padding:14px 18px;border-bottom:1px solid var(--border);transition:background .15s;}
+.check-item:last-child{border-bottom:none;}
+.check-item:hover{background:var(--surface);}
+.check-icon{width:26px;height:26px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;margin-top:1px;font-family:var(--mono);font-weight:700;}
+.check-icon.pass{background:var(--green-dim);color:var(--green);}
+.check-icon.fail{background:var(--red-dim);color:var(--red);}
+.check-icon.warn{background:var(--amber-dim);color:var(--amber);}
+.check-icon.info{background:var(--blue-dim);color:var(--blue);}
+.check-body{flex:1;min-width:0;}
+.check-name{font-size:12px;font-weight:700;margin-bottom:2px;}
+.check-desc{font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.6;}
+.check-src{font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:2px;}
+.check-badge{font-family:var(--mono);font-size:9px;font-weight:700;padding:3px 7px;border-radius:3px;flex-shrink:0;align-self:flex-start;margin-top:2px;letter-spacing:.5px;}
+.badge-pass{background:var(--green-dim);color:var(--green);}
+.badge-fail{background:var(--red-dim);color:var(--red);}
+.badge-warn{background:var(--amber-dim);color:var(--amber);}
+.badge-info{background:var(--blue-dim);color:var(--blue);}
+
+.recs-zone{display:none;}
+.recs-zone.active{display:block;}
+.section-title{font-family:var(--mono);font-size:11px;color:var(--text2);letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;padding-top:4px;}
+.rec-card{background:var(--surface);border:1px solid var(--border2);border-radius:6px;padding:16px 18px;margin-bottom:10px;border-left:3px solid;}
+.rec-card.critical{border-left-color:var(--red);}
+.rec-card.warning{border-left-color:var(--amber);}
+.rec-card.info{border-left-color:var(--blue);}
+.rec-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:12px;}
+.rec-title{font-size:13px;font-weight:700;}
+.rec-body{font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.7;}
+
+.pitch-block{background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:22px;margin-top:24px;display:none;}
+.pitch-block.active{display:block;}
+.pitch-content{font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.9;white-space:pre-wrap;}
+.ai-loading{display:none;align-items:center;gap:10px;}
+.ai-loading.active{display:flex;}
+.ai-spinner{width:14px;height:14px;border:2px solid var(--border2);border-top-color:var(--green);border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.ai-text{font-family:var(--mono);font-size:10px;color:var(--text2);}
+
+.export-row{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;}
+.export-btn{background:transparent;border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);font-family:var(--mono);font-size:11px;padding:9px 16px;cursor:pointer;transition:all .15s;letter-spacing:.5px;}
+.export-btn:hover{border-color:var(--green);color:var(--green);}
+.error-msg{background:var(--red-dim);border:1px solid var(--red);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:11px;color:var(--red);display:none;margin-bottom:16px;}
+.error-msg.active{display:block;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">AS</div>
+    <div>
+      <div class="logo-text">Atlas <span>Securecheck</span></div>
+      <div class="logo-sub">Website Security Auditor</div>
+    </div>
+  </div>
+  <button class="settings-btn" onclick="toggleSettings()">API Keys</button>
+</header>
+
+<div class="settings-panel" id="settingsPanel">
+  <div class="settings-title">API Configuration</div>
+  <div class="settings-grid">
+    <div class="settings-field">
+      <label>Google Safe Browsing Key</label>
+      <input type="password" id="keyGSB" placeholder="Paste your Google API key">
+    </div>
+    <div class="settings-field">
+      <label>URLScan.io Key (optional)</label>
+      <input type="password" id="keyURLScan" placeholder="Optional — free at urlscan.io">
+    </div>
+  </div>
+  <div class="settings-note">
+    <a href="https://console.cloud.google.com/" target="_blank">Get Google Safe Browsing key →</a> &nbsp;·&nbsp;
+    <a href="https://urlscan.io/user/signup" target="_blank">Get URLScan.io key (optional) →</a><br>
+    Mozilla Observatory, SSL Labs and URLScan basic scans need no key. Keys saved in browser only.
+  </div>
+  <button class="save-keys-btn" onclick="saveKeys()">Save Keys</button>
+</div>
+
+<div class="input-zone">
+  <div class="input-label">Target Website</div>
+  <div class="url-row">
+    <input class="url-input" id="urlInput" type="text" placeholder="https://example.com.ng">
+    <button class="scan-btn" id="scanBtn" onclick="runAudit()">Run Audit</button>
+  </div>
+  <div class="biz-row">
+    <input class="mini-input" id="bizName" placeholder="Business name">
+    <input class="mini-input" id="bizSector" placeholder="Sector">
+    <input class="mini-input" id="bizCity" placeholder="City">
+  </div>
+  <div class="src-tags" id="srcTags"></div>
+</div>
+
+<div class="error-msg" id="errorMsg"></div>
+<div class="progress-zone" id="progressZone">
+  <div class="prog-bar-wrap"><div class="prog-bar" id="progBar"></div></div>
+  <div class="prog-log" id="progLog"></div>
+</div>
+
+<div class="api-panels" id="apiPanels"></div>
+
+<div class="score-card" id="scoreCard">
+  <div class="score-header">
+    <div>
+      <div class="score-site" id="scoreSite"></div>
+      <div class="score-biz" id="scoreBiz"></div>
+    </div>
+    <div class="score-ring-wrap">
+      <div class="score-ring" id="scoreRing">
+        <div class="score-num" id="scoreNum">--</div>
+        <div class="score-label">/ 100</div>
+      </div>
+      <div class="score-grade" id="scoreGrade"></div>
+    </div>
+  </div>
+  <div class="checks-grid" id="checksGrid"></div>
+</div>
+
+<div class="recs-zone" id="recsZone">
+  <div class="section-title">Recommendations</div>
+  <div id="recsList"></div>
+  <div class="ai-loading" id="aiLoading">
+    <div class="ai-spinner"></div>
+    <div class="ai-text">Generating pitch script...</div>
+  </div>
+  <div class="pitch-block" id="pitchBlock">
+    <div class="section-title" style="margin-bottom:14px;">Client Pitch Script</div>
+    <div class="pitch-content" id="pitchContent"></div>
+  </div>
+  <div class="export-row">
+    <button class="export-btn" onclick="copyReport()">Copy Report</button>
+    <button class="export-btn" onclick="window.print()">Print / PDF</button>
+    <button class="export-btn" onclick="resetTool()">New Audit</button>
+  </div>
+</div>
+
+</div>
+
+<script>
+const CHECKS_META = [
+  { id:'https',        name:'HTTPS / SSL',                 source:'Built-in',           weight:18 },
+  { id:'observatory',  name:'Mozilla Observatory Grade',   source:'Mozilla Observatory', weight:20 },
+  { id:'ssl_grade',    name:'SSL Labs Certificate Grade',  source:'SSL Labs',            weight:15 },
+  { id:'urlscan',      name:'URLScan.io Threat Check',     source:'URLScan.io',          weight:15 },
+  { id:'safebrowsing', name:'Google Safe Browsing',        source:'Google',              weight:12 },
+  { id:'privacy',      name:'Privacy Policy',              source:'Built-in',            weight:8  },
+  { id:'cookie',       name:'Cookie Consent',              source:'Built-in',            weight:5  },
+  { id:'cms',          name:'CMS Version Hidden',          source:'Built-in',            weight:4  },
+  { id:'mixed',        name:'No Mixed Content',            source:'Built-in',            weight:3  },
+];
+
+let auditResult = null;
+
+function getKey(k) { return localStorage.getItem(k) || ''; }
+function saveKeys() {
+  const gsb = document.getElementById('keyGSB').value.trim();
+  const us  = document.getElementById('keyURLScan').value.trim();
+  if (gsb) localStorage.setItem('atlas_gsb_key', gsb);
+  if (us)  localStorage.setItem('atlas_urlscan_key', us);
+  toggleSettings();
+  updateSrcTags();
+  alert('Keys saved!');
+}
+function toggleSettings() {
+  document.getElementById('settingsPanel').classList.toggle('open');
+  document.querySelector('.settings-btn').textContent =
+    document.getElementById('settingsPanel').classList.contains('open') ? 'Close' : 'API Keys';
+}
+function updateSrcTags() {
+  const gsb = getKey('atlas_gsb_key');
+  document.getElementById('srcTags').innerHTML = `
+    <span class="src-tag src-active">Mozilla Observatory</span>
+    <span class="src-tag src-active">SSL Labs</span>
+    <span class="src-tag src-active">URLScan.io</span>
+    <span class="src-tag ${gsb ? 'src-key' : 'src-off'}">${gsb ? 'Google Safe Browsing ✓' : 'Google Safe Browsing (needs key)'}</span>
+    <span class="src-tag src-active">Built-in Scanner</span>
+  `;
+}
+
+function addLog(text, cls='active') {
+  const d = document.createElement('div');
+  d.className = `log-line ${cls}`;
+  d.textContent = text;
+  document.getElementById('progLog').appendChild(d);
+}
+function doneLastLog() {
+  const lines = document.querySelectorAll('#progLog .log-line');
+  if (lines.length) lines[lines.length-1].className = 'log-line done';
+}
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function runAudit() {
+  const url = document.getElementById('urlInput').value.trim();
+  const bizName   = document.getElementById('bizName').value.trim()   || 'Business';
+  const bizSector = document.getElementById('bizSector').value.trim() || 'Unknown Sector';
+  const bizCity   = document.getElementById('bizCity').value.trim()   || 'Nigeria';
+
+  if (!url) { showError('Please enter a URL.'); return; }
+
+  hideError();
+  document.getElementById('scanBtn').disabled = true;
+  ['scoreCard','recsZone','pitchBlock','aiLoading'].forEach(id => document.getElementById(id).classList.remove('active'));
+  document.getElementById('apiPanels').classList.remove('active');
+  document.getElementById('apiPanels').innerHTML = '';
+  document.getElementById('progLog').innerHTML = '';
+
+  const progZone = document.getElementById('progressZone');
+  progZone.classList.add('active');
+  document.getElementById('progBar').style.width = '5%';
+
+  addLog('Sending to Atlas Securecheck server...');
+
+  // Animate progress while server works
+  const progressSteps = [
+    [10, 'Fetching homepage content...'],
+    [22, 'Checking privacy policy and cookie consent...'],
+    [34, 'Running Mozilla Observatory scan...'],
+    [50, 'Running SSL Labs certificate analysis...'],
+    [66, 'Running URLScan.io threat check...'],
+    [80, 'Running Google Safe Browsing check...'],
+    [90, 'Compiling results...'],
+  ];
+  let stepIdx = 0;
+  const progressInterval = setInterval(() => {
+    if (stepIdx < progressSteps.length) {
+      const [pct, msg] = progressSteps[stepIdx];
+      doneLastLog();
+      addLog(msg);
+      document.getElementById('progBar').style.width = pct + '%';
+      stepIdx++;
+    }
+  }, 18000);
+
+  try {
+    const resp = await fetch('/api/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url,
+        gsb_key: getKey('atlas_gsb_key'),
+        urlscan_key: getKey('atlas_urlscan_key'),
+      }),
+      signal: AbortSignal.timeout(300000) // 5 min max
+    });
+
+    clearInterval(progressInterval);
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      showError(err.error || 'Scan failed. Try again.');
+      document.getElementById('scanBtn').disabled = false;
+      progZone.classList.remove('active');
+      return;
+    }
+
+    const data = await resp.json();
+    doneLastLog();
+    addLog('Scan complete!', 'done');
+    document.getElementById('progBar').style.width = '100%';
+    await delay(400);
+    progZone.classList.remove('active');
+
+    auditResult = { ...data, bizName, bizSector, bizCity };
+    renderAPICards(data.api_results);
+    renderResults(auditResult);
+    buildRecs(auditResult);
+    document.getElementById('recsZone').classList.add('active');
+    fetchAIPitch(auditResult);
+
+  } catch(e) {
+    clearInterval(progressInterval);
+    showError('Request timed out or server unreachable. The scan can take up to 3 minutes — please try again.');
+  }
+
+  document.getElementById('scanBtn').disabled = false;
+}
+
+function gradeColor(g) {
+  if (!g || g === 'N/A') return 'var(--red)';
+  if (['A+','A'].includes(g))         return 'var(--green)';
+  if (['A-','B+','B','D-'].includes(g)) return 'var(--amber)';
+  return 'var(--red)';
+}
+
+function renderAPICards({ observatory, ssl, urlscan, gsb }) {
+  const panel = document.getElementById('apiPanels');
+  panel.innerHTML = '';
+
+  panel.innerHTML += `<div class="api-card">
+    <div class="api-card-head">
+      <div class="api-card-name" style="color:var(--blue)">Mozilla Observatory</div>
+      <div class="api-grade" style="color:${gradeColor(observatory?.grade)}">${observatory?.grade || '--'}</div>
+    </div>
+    <div class="api-card-body">
+      ${observatory
+        ? `<div class="api-stat"><span>Tests passed</span><span class="api-stat-val">${observatory.tests_passed}/${observatory.tests_total}</span></div>
+           <div class="api-stat"><span>Tests failed</span><span class="api-stat-val" style="color:${observatory.tests_failed>0?'var(--red)':'var(--green)'}">${observatory.tests_failed}</span></div>
+           <div class="api-stat"><span>Score</span><span class="api-stat-val">${observatory.score}/100</span></div>`
+        : '<div class="api-skip">Unavailable — try again</div>'}
+    </div>
+  </div>`;
+
+  panel.innerHTML += `<div class="api-card">
+    <div class="api-card-head">
+      <div class="api-card-name" style="color:var(--purple,#b388ff)">SSL Labs</div>
+      <div class="api-grade" style="color:${gradeColor(ssl?.grade)}">${ssl?.no_ssl ? 'None' : (ssl?.grade || '--')}</div>
+    </div>
+    <div class="api-card-body">
+      ${ssl?.no_ssl
+        ? '<div class="api-stat"><span>Status</span><span class="api-stat-val" style="color:var(--red)">No SSL certificate</span></div>'
+        : ssl
+          ? `<div class="api-stat"><span>IP address</span><span class="api-stat-val">${ssl.ip||'N/A'}</span></div>
+             <div class="api-stat"><span>Warnings</span><span class="api-stat-val">${ssl.has_warnings?'Yes':'None'}</span></div>`
+          : '<div class="api-skip">Timed out — run again for cached result</div>'}
+    </div>
+  </div>`;
+
+  const usColor = !urlscan ? 'var(--text3)' : urlscan.malicious ? 'var(--red)' : 'var(--green)';
+  const usLabel = !urlscan ? '--' : urlscan.malicious ? 'Malicious' : 'Clean';
+  panel.innerHTML += `<div class="api-card">
+    <div class="api-card-head">
+      <div class="api-card-name" style="color:var(--amber)">URLScan.io</div>
+      <div class="api-grade" style="color:${usColor};font-size:14px;font-weight:700;">${usLabel}</div>
+    </div>
+    <div class="api-card-body">
+      ${!urlscan
+        ? '<div class="api-skip">Scan unavailable</div>'
+        : `<div class="api-stat"><span>Threat score</span><span class="api-stat-val" style="color:${urlscan.score>50?'var(--red)':urlscan.score>0?'var(--amber)':'var(--green)'}">${urlscan.score}/100</span></div>
+           <div class="api-stat"><span>Network requests</span><span class="api-stat-val">${urlscan.requests||'N/A'}</span></div>
+           <div class="api-stat"><span>Unique domains</span><span class="api-stat-val">${urlscan.domains||'N/A'}</span></div>
+           ${urlscan.report_url?`<div style="margin-top:6px;"><a href="${urlscan.report_url}" target="_blank" style="color:var(--blue);font-size:9px;text-decoration:none;">View full report →</a></div>`:''}`}
+    </div>
+  </div>`;
+
+  panel.innerHTML += `<div class="api-card">
+    <div class="api-card-head">
+      <div class="api-card-name" style="color:var(--green)">Google Safe Browsing</div>
+      <div class="api-grade" style="color:${!gsb?'var(--text3)':gsb.clean?'var(--green)':'var(--red)'};font-size:14px;font-weight:700;">${!gsb?'--':gsb.clean?'Clean':'Flagged'}</div>
+    </div>
+    <div class="api-card-body">
+      ${!gsb
+        ? '<div class="api-skip">Add Google API key to enable</div>'
+        : gsb.clean
+          ? '<div class="api-stat"><span>Status</span><span class="api-stat-val" style="color:var(--green)">No threats found</span></div>'
+          : `<div class="api-stat"><span>Threats</span><span class="api-stat-val" style="color:var(--red)">${gsb.threats.join(', ')}</span></div>`}
+    </div>
+  </div>`;
+
+  panel.classList.add('active');
+}
+
+function renderResults({ url, domain, bizName, bizSector, bizCity, score, checks }) {
+  document.getElementById('scoreSite').textContent = domain;
+  document.getElementById('scoreBiz').textContent = `${bizName} · ${bizSector} · ${bizCity}`;
+  document.getElementById('scoreNum').textContent = score;
+
+  let color, gradeText;
+  if (score >= 80)      { color='var(--green)'; gradeText='GOOD'; }
+  else if (score >= 55) { color='var(--amber)'; gradeText='AT RISK'; }
+  else                  { color='var(--red)';   gradeText='CRITICAL'; }
+
+  const ring = document.getElementById('scoreRing');
+  ring.style.borderColor = color;
+  document.getElementById('scoreNum').style.color = color;
+  document.getElementById('scoreGrade').textContent = gradeText;
+  document.getElementById('scoreGrade').style.color = color;
+
+  const grid = document.getElementById('checksGrid');
+  grid.innerHTML = '';
+  const iconMap  = { pass:'✓', fail:'✗', warn:'!', info:'i' };
+  const badgeMap = { pass:'PASS', fail:'FAIL', warn:'WARN', info:'N/A' };
+
+  for (const meta of CHECKS_META) {
+    const r = checks[meta.id] || { status:'info', note:'Not checked', pass:false };
+    grid.innerHTML += `
+      <div class="check-item">
+        <div class="check-icon ${r.status}">${iconMap[r.status]}</div>
+        <div class="check-body">
+          <div class="check-name">${meta.name}</div>
+          <div class="check-desc">${r.note}</div>
+          <div class="check-src">Source: ${meta.source}</div>
+        </div>
+        <div class="check-badge badge-${r.status}">${badgeMap[r.status]}</div>
+      </div>`;
+  }
+  document.getElementById('scoreCard').classList.add('active');
+}
+
+function buildRecs({ checks, score, bizName }) {
+  const recs = [];
+  const c = checks;
+  if (!c.https?.pass)        recs.push({type:'critical', title:'Install SSL / HTTPS', body:`${bizName} transmits data in plain text over HTTP. Any form submission is visible to anyone on the network. A free SSL certificate from Let's Encrypt fixes this via any Nigerian hosting panel.`});
+  if (c.observatory?.status==='fail') recs.push({type:'critical', title:'Mozilla Observatory: Failed', body:`Grade ${c.observatory.note}. Critical HTTP security headers are missing. These protect against XSS, clickjacking, and SSL stripping — all free to add via .htaccess.`});
+  if (c.ssl_grade?.status==='fail')   recs.push({type:'critical', title:'SSL Certificate: Missing or Failing', body:'No valid SSL certificate found or certificate has critical issues. This is the single most important security fix for any Nigerian business website.'});
+  if (c.ssl_grade?.status==='warn')   recs.push({type:'warning',  title:'SSL Labs Grade: Below A', body:'SSL is installed but the configuration is weak. Outdated TLS versions or weak cipher suites. A developer can fix this in under an hour.'});
+  if (c.urlscan?.status==='fail')     recs.push({type:'critical', title:'URLScan.io: Malicious Site Detected', body:'URLScan has flagged this site as malicious. Contact the hosting provider immediately — the site may be compromised or hosting phishing content.'});
+  if (c.safebrowsing?.status==='fail') recs.push({type:'critical', title:'Google Safe Browsing: Threat Detected', body:'Google has flagged this site. Users on Chrome, Firefox and Safari will see a full-page warning. Immediate remediation and a Google review request are required.'});
+  if (!c.privacy?.pass)      recs.push({type:'critical', title:'No Privacy Policy (NDPR violation)', body:'Required by the Nigeria Data Protection Regulation (NDPR) 2019. Any business collecting personal data must publish a privacy policy. Fines reach ₦10 million.'});
+  if (c.cookie?.status==='warn')      recs.push({type:'warning',  title:'No Cookie Consent Banner', body:'Required under NDPR for any site using analytics or tracking. Free tools like CookieYes take 10 minutes to install on any WordPress site.'});
+  if (c.cms?.status==='warn')         recs.push({type:'warning',  title:'CMS Version Exposed', body:'The CMS version is visible in the source code. Attackers use this to identify exploits. One line of code in functions.php hides this immediately.'});
+  if (!c.mixed?.pass)        recs.push({type:'warning',  title:'Mixed Content Detected', body:'HTTP resources are loaded on an HTTPS page. Use Better Search Replace on WordPress to update all internal HTTP links to HTTPS.'});
+  if (recs.length === 0)     recs.push({type:'info', title:'No Critical Issues Found', body:'This site passes all checks. Consider a deeper manual penetration test for full assurance.'});
+
+  const list = document.getElementById('recsList');
+  list.innerHTML = '';
+  recs.forEach((r, i) => {
+    list.innerHTML += `<div class="rec-card ${r.type}">
+      <div class="rec-top">
+        <div class="rec-title">${i+1}. ${r.title}</div>
+        <div class="check-badge badge-${r.type==='critical'?'fail':r.type==='warning'?'warn':'info'}">${r.type.toUpperCase()}</div>
+      </div>
+      <div class="rec-body">${r.body}</div>
+    </div>`;
+  });
+}
+
+async function fetchAIPitch({ bizName, bizSector, bizCity, score, checks, api_results }) {
+  document.getElementById('aiLoading').classList.add('active');
+  const fails = Object.entries(checks).filter(([,v]) => v.status==='fail').map(([k]) => k).join(', ');
+  const riskLevel = score >= 80 ? 'Low' : score >= 55 ? 'Medium' : 'High';
+
+  const prompt = `You are a professional web security consultant in Nigeria pitching Atlas Securecheck's audit service.
+
+Business: ${bizName} | Sector: ${bizSector} | City: ${bizCity}
+Security score: ${score}/100 (${riskLevel} risk)
+Issues found: ${fails || 'None critical'}
+
+Write a SHORT warm pitch script (max 180 words) for WhatsApp or in-person. Open with a relatable concern, mention one specific issue in plain language, reference NDPR if relevant, close with a clear call to action. Sound warm and Nigerian — not robotic. Plain text only.`;
+
+  try {
+    const resp = await fetch('/api/anthropic-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+      signal: AbortSignal.timeout(30000)
+    });
+    const data = await resp.json();
+    document.getElementById('pitchContent').textContent = data.text || 'Could not generate pitch.';
+  } catch(e) {
+    document.getElementById('pitchContent').textContent = 'Could not generate pitch — check connection.';
+  } finally {
+    document.getElementById('aiLoading').classList.remove('active');
+    document.getElementById('pitchBlock').classList.add('active');
+  }
+}
+
+function copyReport() {
+  if (!auditResult) return;
+  const { bizName, bizSector, bizCity, url, score, checks } = auditResult;
+  let txt = `ATLAS SECURECHECK — AUDIT REPORT\n${bizName} | ${bizSector} | ${bizCity}\nURL: ${url}\nScore: ${score}/100\n\nCHECKS:\n`;
+  for (const m of CHECKS_META) { const r = checks[m.id]; if (r) txt += `  [${r.status.toUpperCase()}] ${m.name}: ${r.note}\n`; }
+  navigator.clipboard.writeText(txt).then(() => alert('Copied!'));
+}
+
+function resetTool() {
+  auditResult = null;
+  ['urlInput','bizName','bizSector','bizCity'].forEach(id => document.getElementById(id).value = '');
+  ['scoreCard','recsZone','pitchBlock','aiLoading','progressZone'].forEach(id => document.getElementById(id).classList.remove('active'));
+  document.getElementById('apiPanels').classList.remove('active');
+  hideError();
+}
+
+function showError(msg) { const e = document.getElementById('errorMsg'); e.textContent = msg; e.classList.add('active'); }
+function hideError() { document.getElementById('errorMsg').classList.remove('active'); }
+
+document.getElementById('urlInput').addEventListener('keydown', e => { if (e.key==='Enter') runAudit(); });
+document.getElementById('keyGSB').value = getKey('atlas_gsb_key');
+document.getElementById('keyURLScan').value = getKey('atlas_urlscan_key');
+updateSrcTags();
+</script>
+</body>
+</html>
