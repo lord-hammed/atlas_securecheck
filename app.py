@@ -3,6 +3,7 @@ import re
 import time
 import json
 import requests
+import threading
 from urllib.parse import urlparse
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -115,12 +116,27 @@ def check_observatory(domain):
 
 def check_ssl_labs(domain):
     try:
+        # Check cache first — returns instantly if already scanned recently
+        poll_url = f"https://api.ssllabs.com/api/v3/analyze?host={domain}&all=done"
+        r = requests.get(poll_url, timeout=15)
+        if r.ok:
+            data = r.json()
+            if data.get("status") == "READY" and data.get("endpoints"):
+                ep = data["endpoints"][0]
+                return {
+                    "grade": ep.get("grade") or ep.get("gradeTrust") or "T",
+                    "ip": ep.get("ipAddress"),
+                    "has_warnings": ep.get("hasWarnings", False),
+                    "is_exceptional": ep.get("isExceptional", False),
+                    "cached": True
+                }
+
+        # Not cached — start new scan
         start_url = f"https://api.ssllabs.com/api/v3/analyze?host={domain}&startNew=on&all=done&ignoreMismatch=on"
         requests.get(start_url, timeout=15)
         time.sleep(8)
 
         for attempt in range(20):
-            poll_url = f"https://api.ssllabs.com/api/v3/analyze?host={domain}&all=done"
             r = requests.get(poll_url, timeout=15)
             if not r.ok:
                 time.sleep(6)
@@ -142,11 +158,23 @@ def check_ssl_labs(domain):
         return None
 
 def check_urlscan(url):
+    """URLScan requires an API key when called from a server IP."""
+    urlscan_key = os.environ.get("URLSCAN_API_KEY", "")
+    if not urlscan_key:
+        # Return a special marker so frontend can show friendly message
+        return {"no_key": True}
+
     try:
         domain = get_domain(url)
+        headers = {
+            "Content-Type": "application/json",
+            "API-Key": urlscan_key
+        }
+
         # Search for existing results first
         r = requests.get(
             f"https://urlscan.io/api/v1/search/?q=domain:{domain}&size=1",
+            headers={"API-Key": urlscan_key},
             timeout=15
         )
         if r.ok:
@@ -156,17 +184,13 @@ def check_urlscan(url):
                 scan_id = results[0].get("_id")
                 r2 = requests.get(
                     f"https://urlscan.io/api/v1/result/{scan_id}/",
+                    headers={"API-Key": urlscan_key},
                     timeout=15
                 )
                 if r2.ok:
                     return parse_urlscan_result(r2.json())
 
         # No existing result — submit new scan
-        headers = {"Content-Type": "application/json"}
-        urlscan_key = os.environ.get("URLSCAN_API_KEY", "")
-        if urlscan_key:
-            headers["API-Key"] = urlscan_key
-
         submit = requests.post(
             "https://urlscan.io/api/v1/scan/",
             headers=headers,
@@ -184,6 +208,7 @@ def check_urlscan(url):
         for _ in range(6):
             r3 = requests.get(
                 f"https://urlscan.io/api/v1/result/{scan_id}/",
+                headers={"API-Key": urlscan_key},
                 timeout=15
             )
             if r3.ok:
@@ -303,9 +328,9 @@ def scan():
             "note": "No SSL certificate installed" if (ssl and ssl.get("no_ssl")) else (f"SSL grade: {ssl['grade']}" if ssl else "SSL Labs unavailable")
         },
         "urlscan": {
-            "pass": urlscan is not None and not urlscan.get("malicious"),
-            "status": "info" if not urlscan else ("fail" if urlscan.get("malicious") else "pass"),
-            "note": "Scan unavailable" if not urlscan else (f"{'Malicious' if urlscan.get('malicious') else 'Clean'} — threat score {urlscan.get('score', 0)}/100")
+            "pass": urlscan is not None and not urlscan.get("malicious") and not urlscan.get("no_key"),
+            "status": "info" if (not urlscan or urlscan.get("no_key")) else ("fail" if urlscan.get("malicious") else "pass"),
+            "note": "Add URLSCAN_API_KEY to Render environment variables to enable this check" if (urlscan and urlscan.get("no_key")) else ("Scan unavailable" if not urlscan else (f"{'Malicious' if urlscan.get('malicious') else 'Clean'} — threat score {urlscan.get('score', 0)}/100"))
         },
         "safebrowsing": {
             "pass": gsb is not None and gsb.get("clean"),
