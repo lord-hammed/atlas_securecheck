@@ -426,6 +426,480 @@ def anthropic_proxy():
     except Exception as e:
         return jsonify({"text": "AI pitch unavailable."}), 200
 
+# ── PDF Generation ─────────────────────────────────────────────────────────
+
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.units import mm
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether, PageBreak
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+from reportlab.platypus import Flowable
+import io
+
+W, H = A4
+
+# Colours
+INK        = colors.HexColor('#0f1117')
+INK2       = colors.HexColor('#3a3f4e')
+INK3       = colors.HexColor('#6b7280')
+GREEN      = colors.HexColor('#00875a')
+GREEN_BG   = colors.HexColor('#e6f5f0')
+RED        = colors.HexColor('#c0392b')
+RED_BG     = colors.HexColor('#fdf0ee')
+AMBER      = colors.HexColor('#b45309')
+AMBER_BG   = colors.HexColor('#fef3e2')
+BLUE       = colors.HexColor('#1d4ed8')
+BLUE_BG    = colors.HexColor('#eff6ff')
+SURFACE    = colors.HexColor('#f8f7f4')
+DARK       = colors.HexColor('#0f1117')
+WHITE      = colors.white
+
+def S(name, **kw):
+    base = dict(fontName='Helvetica', fontSize=10, leading=16, textColor=INK2, spaceAfter=4)
+    base.update(kw)
+    return ParagraphStyle(name, **base)
+
+class ColorRect(Flowable):
+    def __init__(self, w, h, color, radius=3):
+        super().__init__()
+        self.width, self.height, self.color, self.radius = w, h, color, radius
+    def draw(self):
+        self.canv.setFillColor(self.color)
+        self.canv.roundRect(0, 0, self.width, self.height, self.radius, fill=1, stroke=0)
+
+class Divider(Flowable):
+    def __init__(self, color, height=1):
+        super().__init__()
+        self.divColor, self.height = color, height
+        self.width = 0
+    def wrap(self, aw, ah):
+        self.width = aw
+        return aw, self.height + 6
+    def draw(self):
+        self.canv.setFillColor(self.divColor)
+        self.canv.rect(0, 3, self.width, self.height, fill=1, stroke=0)
+
+def bg_page(canvas, doc):
+    canvas.saveState()
+    canvas.setFillColor(WHITE)
+    canvas.rect(0, 0, W, H, fill=1, stroke=0)
+    # Top accent bar
+    canvas.setFillColor(GREEN)
+    canvas.rect(0, H - 5, W, 5, fill=1, stroke=0)
+    # Footer
+    canvas.setFillColor(SURFACE)
+    canvas.rect(0, 0, W, 16*mm, fill=1, stroke=0)
+    canvas.setFillColor(INK3)
+    canvas.setFont('Helvetica', 7)
+    canvas.drawString(22*mm, 6*mm, 'Atlas Securecheck  ·  Website Security Audit Report  ·  Confidential')
+    canvas.setFillColor(GREEN)
+    canvas.setFont('Helvetica-Bold', 8)
+    canvas.drawRightString(W - 22*mm, 6*mm, f'Page {doc.page}')
+    canvas.restoreState()
+
+PLANS = {
+    'basic':   {'name': 'Basic Audit',            'price': 'N40,000',       'checks': 5,  'desc': '5-point security check covering critical vulnerabilities'},
+    'full':    {'name': 'Full Audit',              'price': 'N100,000',      'checks': 9,  'desc': '9-point comprehensive security and compliance audit'},
+    'monthly': {'name': 'Monthly Monitoring',      'price': 'N50,000/month', 'checks': 9,  'desc': 'Monthly full audit with updated report and monitoring'},
+}
+
+STATUS_COLORS = {
+    'pass': (GREEN, GREEN_BG, '✓', 'PASS'),
+    'fail': (RED,   RED_BG,   '✗', 'FAIL'),
+    'warn': (AMBER, AMBER_BG, '!', 'WARN'),
+    'info': (BLUE,  BLUE_BG,  'i', 'N/A'),
+}
+
+CHECKS_META = [
+    {'id': 'https',        'name': 'HTTPS / SSL Certificate',        'source': 'Built-in',            'basic': True},
+    {'id': 'privacy',      'name': 'Privacy Policy (NDPR)',           'source': 'Built-in',            'basic': True},
+    {'id': 'cookie',       'name': 'Cookie Consent Notice',           'source': 'Built-in',            'basic': True},
+    {'id': 'mixed',        'name': 'Mixed Content',                   'source': 'Built-in',            'basic': True},
+    {'id': 'cms',          'name': 'CMS Version Hidden',              'source': 'Built-in',            'basic': True},
+    {'id': 'observatory',  'name': 'Mozilla Observatory Grade',       'source': 'Mozilla Observatory', 'basic': False},
+    {'id': 'ssl_grade',    'name': 'SSL Labs Certificate Grade',      'source': 'SSL Labs',            'basic': False},
+    {'id': 'urlscan',      'name': 'URLScan.io Threat Check',         'source': 'URLScan.io',          'basic': False},
+    {'id': 'safebrowsing', 'name': 'Google Safe Browsing',            'source': 'Google',              'basic': False},
+]
+
+@app.route("/api/generate-report", methods=["POST"])
+def generate_report():
+    d = request.json or {}
+    plan_key    = d.get("plan", "full")
+    biz_name    = d.get("biz_name", "Business")
+    biz_sector  = d.get("biz_sector", "")
+    biz_city    = d.get("biz_city", "")
+    url         = d.get("url", "")
+    domain      = d.get("domain", "")
+    score       = d.get("score", 0)
+    checks      = d.get("checks", {})
+    api_results = d.get("api_results", {})
+    audit_date  = d.get("audit_date", "")
+    auditor     = d.get("auditor", "Atlas Securecheck")
+    notes       = d.get("notes", "")
+
+    plan = PLANS.get(plan_key, PLANS["full"])
+    is_basic = plan_key == "basic"
+    visible_checks = [c for c in CHECKS_META if (is_basic and c["basic"]) or not is_basic]
+
+    # Score label
+    if score >= 80:   risk_label, risk_color = "GOOD",     GREEN
+    elif score >= 55: risk_label, risk_color = "AT RISK",  AMBER
+    else:             risk_label, risk_color = "CRITICAL", RED
+
+    fails = sum(1 for c in visible_checks if checks.get(c["id"], {}).get("status") == "fail")
+    warns = sum(1 for c in visible_checks if checks.get(c["id"], {}).get("status") == "warn")
+    passes = sum(1 for c in visible_checks if checks.get(c["id"], {}).get("status") == "pass")
+    ndpr_ids = {"https", "privacy", "cookie", "safebrowsing"}
+    ndpr_fail = any(checks.get(i, {}).get("status") == "fail" for i in ndpr_ids)
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+        leftMargin=22*mm, rightMargin=22*mm,
+        topMargin=20*mm, bottomMargin=22*mm,
+        title=f"Atlas Securecheck — {biz_name} Audit Report")
+
+    PW = doc.width
+    story = []
+
+    # ── Cover header ──
+    story.append(Spacer(1, 8*mm))
+
+    # Logo row
+    logo_data = [[
+        Paragraph('<b>AS</b>', S('lg', fontName='Helvetica-Bold', fontSize=16, textColor=GREEN, alignment=TA_CENTER)),
+        Paragraph('<b>Atlas Securecheck</b>', S('ln', fontName='Helvetica-Bold', fontSize=22, textColor=INK, leading=26)),
+    ]]
+    logo_tbl = Table(logo_data, colWidths=[14*mm, PW - 14*mm])
+    logo_tbl.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (0,0), 0),
+        ('LEFTPADDING', (1,0), (1,0), 10),
+        ('TOPPADDING', (0,0), (-1,-1), 0),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ('BOX', (0,0), (0,0), 1.5, GREEN),
+        ('BACKGROUND', (0,0), (0,0), WHITE),
+    ]))
+    story.append(logo_tbl)
+    story.append(Spacer(1, 3*mm))
+    story.append(Paragraph('WEBSITE SECURITY AUDIT REPORT', S('sub', fontName='Helvetica', fontSize=9, textColor=INK3, letterSpacing=2)))
+    story.append(Divider(GREEN, 2))
+    story.append(Spacer(1, 6*mm))
+
+    # Business info + score
+    score_color_hex = '#00875a' if score >= 80 else '#b45309' if score >= 55 else '#c0392b'
+    biz_info = [
+        [Paragraph(f'<b>{biz_name}</b>', S('bn', fontName='Helvetica-Bold', fontSize=20, textColor=INK, leading=24)),
+         Paragraph(f'<b>{score}</b>', S('sc', fontName='Helvetica-Bold', fontSize=36, textColor=colors.HexColor(score_color_hex), alignment=TA_CENTER, leading=40))],
+        [Paragraph(f'{biz_sector}{"  ·  " + biz_city if biz_city else ""}', S('bm', fontName='Helvetica', fontSize=11, textColor=INK3)),
+         Paragraph(f'<b>{risk_label}</b>', S('sl', fontName='Helvetica-Bold', fontSize=11, textColor=colors.HexColor(score_color_hex), alignment=TA_CENTER))],
+        [Paragraph(f'{domain}', S('bd', fontName='Helvetica', fontSize=10, textColor=INK3)),
+         Paragraph('/ 100', S('sh', fontName='Helvetica', fontSize=9, textColor=INK3, alignment=TA_CENTER))],
+    ]
+    biz_tbl = Table(biz_info, colWidths=[PW * 0.68, PW * 0.32])
+    biz_tbl.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('BACKGROUND', (1,0), (1,2), SURFACE),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('LEFTPADDING', (1,0), (1,-1), 10),
+        ('RIGHTPADDING', (1,0), (1,-1), 10),
+        ('LINEAFTER', (0,0), (0,-1), 0.5, colors.HexColor('#e2e0da')),
+    ]))
+    story.append(biz_tbl)
+    story.append(Spacer(1, 4*mm))
+
+    # Stats row
+    stats_data = [[
+        Paragraph(f'<b>{fails}</b><br/><font size=8>Failed</font>', S('st', fontName='Helvetica-Bold', fontSize=20, textColor=RED, alignment=TA_CENTER, leading=22)),
+        Paragraph(f'<b>{warns}</b><br/><font size=8>Warnings</font>', S('st2', fontName='Helvetica-Bold', fontSize=20, textColor=AMBER, alignment=TA_CENTER, leading=22)),
+        Paragraph(f'<b>{passes}</b><br/><font size=8>Passed</font>', S('st3', fontName='Helvetica-Bold', fontSize=20, textColor=GREEN, alignment=TA_CENTER, leading=22)),
+        Paragraph(f'<b>{len(visible_checks)}</b><br/><font size=8>Checks</font>', S('st4', fontName='Helvetica-Bold', fontSize=20, textColor=BLUE, alignment=TA_CENTER, leading=22)),
+        Paragraph(f'<b>{plan["name"]}</b><br/><font size=8>{plan["price"]}</font>', S('st5', fontName='Helvetica-Bold', fontSize=13, textColor=INK, alignment=TA_CENTER, leading=18)),
+    ]]
+    stats_tbl = Table(stats_data, colWidths=[PW/5]*5)
+    stats_tbl.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), SURFACE),
+        ('TOPPADDING', (0,0), (-1,-1), 10),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e0da')),
+        ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e0da')),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(stats_tbl)
+    story.append(Spacer(1, 6*mm))
+
+    # NDPR warning
+    if ndpr_fail:
+        ndpr_data = [[
+            Paragraph('NDPR', S('nl', fontName='Helvetica-Bold', fontSize=9, textColor=AMBER, alignment=TA_CENTER)),
+            Paragraph('One or more findings constitute a potential violation of the Nigeria Data Protection Regulation (NDPR) 2019. Penalties reach <b>N10 million</b> or 2% of annual gross revenue.', S('nb', fontName='Helvetica', fontSize=9, leading=14, textColor=colors.HexColor('#78350f'))),
+        ]]
+        ndpr_tbl = Table(ndpr_data, colWidths=[14*mm, PW - 14*mm])
+        ndpr_tbl.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), AMBER_BG),
+            ('BOX', (0,0), (-1,-1), 1, AMBER),
+            ('LEFTPADDING', (0,0), (-1,-1), 8),
+            ('RIGHTPADDING', (0,0), (-1,-1), 8),
+            ('TOPPADDING', (0,0), (-1,-1), 8),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(ndpr_tbl)
+        story.append(Spacer(1, 5*mm))
+
+    # ── Findings ──
+    story.append(Paragraph('SECURITY FINDINGS', S('sh', fontName='Helvetica-Bold', fontSize=10, textColor=INK3, letterSpacing=1.5)))
+    story.append(Divider(colors.HexColor('#e2e0da')))
+    story.append(Spacer(1, 3*mm))
+
+    for chk in visible_checks:
+        r = checks.get(chk["id"], {"status": "info", "note": "Not checked", "pass": False})
+        status = r.get("status", "info")
+        col, bg, icon, badge = STATUS_COLORS.get(status, STATUS_COLORS["info"])
+
+        finding_data = [[
+            Paragraph(f'<b>{icon}</b>', S('fi', fontName='Helvetica-Bold', fontSize=13, textColor=col, alignment=TA_CENTER)),
+            Paragraph(f'<b>{chk["name"]}</b>', S('fn', fontName='Helvetica-Bold', fontSize=11, textColor=INK, leading=14)),
+            Paragraph(badge, S('fb', fontName='Helvetica-Bold', fontSize=8, textColor=col, alignment=TA_CENTER)),
+        ]]
+        finding_tbl = Table(finding_data, colWidths=[10*mm, PW - 26*mm, 16*mm])
+        finding_tbl.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), bg),
+            ('LEFTPADDING', (0,0), (-1,-1), 8),
+            ('RIGHTPADDING', (0,0), (-1,-1), 8),
+            ('TOPPADDING', (0,0), (-1,-1), 8),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('LINEBELOW', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e0da')),
+        ]))
+
+        note_data = [[
+            Spacer(10*mm, 1),
+            Paragraph(r.get("note", ""), S('nd', fontName='Helvetica', fontSize=9, leading=14, textColor=INK2)),
+            Paragraph(f'Source: {chk["source"]}', S('ns', fontName='Helvetica', fontSize=8, textColor=INK3)),
+        ]]
+        note_tbl = Table(note_data, colWidths=[10*mm, PW - 36*mm, 26*mm])
+        note_tbl.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), WHITE),
+            ('LEFTPADDING', (0,0), (-1,-1), 8),
+            ('RIGHTPADDING', (0,0), (-1,-1), 8),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('LINEBELOW', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e0da')),
+            ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e0da')),
+        ]))
+        story.append(KeepTogether([finding_tbl, note_tbl, Spacer(1, 3*mm)]))
+
+    # ── Auditor notes ──
+    if notes:
+        story.append(Spacer(1, 4*mm))
+        story.append(Paragraph('AUDITOR NOTES', S('sh', fontName='Helvetica-Bold', fontSize=10, textColor=INK3, letterSpacing=1.5)))
+        story.append(Divider(colors.HexColor('#e2e0da')))
+        story.append(Spacer(1, 3*mm))
+        story.append(Paragraph(notes, S('nt', fontName='Helvetica', fontSize=10, leading=16, textColor=INK2)))
+        story.append(Spacer(1, 4*mm))
+
+    # ── Footer info ──
+    story.append(Spacer(1, 6*mm))
+    footer_data = [[
+        Paragraph(f'Prepared by: <b>{auditor}</b><br/>Audit date: {audit_date}<br/>Report type: {plan["name"]} ({plan["checks"]}-point audit)', S('fi', fontName='Helvetica', fontSize=9, leading=14, textColor=INK3)),
+        Paragraph(f'<b>{plan["price"]}</b><br/><font size=8 color="#6b7280">Service fee</font>', S('fp', fontName='Helvetica-Bold', fontSize=18, textColor=INK, alignment=TA_RIGHT, leading=22)),
+    ]]
+    footer_tbl = Table(footer_data, colWidths=[PW * 0.6, PW * 0.4])
+    footer_tbl.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), SURFACE),
+        ('LEFTPADDING', (0,0), (-1,-1), 12),
+        ('RIGHTPADDING', (0,0), (-1,-1), 12),
+        ('TOPPADDING', (0,0), (-1,-1), 12),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 12),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e0da')),
+    ]))
+    story.append(footer_tbl)
+
+    doc.build(story, onFirstPage=bg_page, onLaterPages=bg_page)
+    buf.seek(0)
+
+    from flask import send_file
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', biz_name)
+    return send_file(buf, mimetype='application/pdf',
+                     as_attachment=True,
+                     download_name=f"Atlas_Securecheck_{safe_name}_Report.pdf")
+
+
+@app.route("/api/generate-invoice", methods=["POST"])
+def generate_invoice():
+    d = request.json or {}
+    plan_key       = d.get("plan", "full")
+    biz_name       = d.get("biz_name", "Client")
+    biz_contact    = d.get("biz_contact", "")
+    biz_email      = d.get("biz_email", "")
+    invoice_number = d.get("invoice_number", "INV-001")
+    issue_date     = d.get("issue_date", "")
+    due_date       = d.get("due_date", "")
+    auditor        = d.get("auditor", "Atlas Securecheck")
+    auditor_email  = d.get("auditor_email", "")
+    auditor_phone  = d.get("auditor_phone", "")
+    bank_name      = d.get("bank_name", "")
+    account_name   = d.get("account_name", "")
+    account_number = d.get("account_number", "")
+    notes          = d.get("notes", "")
+
+    plan = PLANS.get(plan_key, PLANS["full"])
+    price_str = plan["price"].replace("N", "").replace(",", "").replace("/month", "").strip()
+    try: price_val = int(price_str)
+    except: price_val = 0
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+        leftMargin=22*mm, rightMargin=22*mm,
+        topMargin=20*mm, bottomMargin=22*mm,
+        title=f"Atlas Securecheck Invoice — {invoice_number}")
+
+    PW = doc.width
+    story = []
+    story.append(Spacer(1, 8*mm))
+
+    # Header
+    hdr_data = [[
+        Paragraph('<b>AS</b>', S('lg', fontName='Helvetica-Bold', fontSize=16, textColor=GREEN, alignment=TA_CENTER)),
+        [Paragraph('<b>Atlas Securecheck</b>', S('ln', fontName='Helvetica-Bold', fontSize=22, textColor=INK, leading=26)),
+         Paragraph('Website Security Auditing Services', S('ls', fontName='Helvetica', fontSize=10, textColor=INK3))],
+        Paragraph('INVOICE', S('inv', fontName='Helvetica-Bold', fontSize=28, textColor=GREEN, alignment=TA_RIGHT, leading=32)),
+    ]]
+    hdr_tbl = Table(hdr_data, colWidths=[14*mm, PW*0.55, PW*0.38])
+    hdr_tbl.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (1,0), (1,0), 10),
+        ('BOX', (0,0), (0,0), 1.5, GREEN),
+    ]))
+    story.append(hdr_tbl)
+    story.append(Divider(GREEN, 3))
+    story.append(Spacer(1, 6*mm))
+
+    # Invoice meta + Bill To
+    meta_data = [[
+        [Paragraph('<b>BILL TO</b>', S('bt', fontName='Helvetica-Bold', fontSize=9, textColor=INK3, letterSpacing=1)),
+         Spacer(1, 2*mm),
+         Paragraph(f'<b>{biz_name}</b>', S('bn', fontName='Helvetica-Bold', fontSize=14, textColor=INK, leading=18)),
+         Paragraph(biz_contact, S('bc', fontName='Helvetica', fontSize=10, textColor=INK2)),
+         Paragraph(biz_email, S('be', fontName='Helvetica', fontSize=10, textColor=BLUE))],
+        [Paragraph('<b>INVOICE DETAILS</b>', S('id', fontName='Helvetica-Bold', fontSize=9, textColor=INK3, letterSpacing=1)),
+         Spacer(1, 2*mm),
+         Paragraph(f'<b>Invoice No:</b>  {invoice_number}', S('im', fontName='Helvetica', fontSize=10, textColor=INK2, leading=16)),
+         Paragraph(f'<b>Issue Date:</b>  {issue_date}', S('im2', fontName='Helvetica', fontSize=10, textColor=INK2, leading=16)),
+         Paragraph(f'<b>Due Date:</b>    {due_date}', S('im3', fontName='Helvetica', fontSize=10, textColor=INK2, leading=16)),
+         Paragraph(f'<b>Status:</b>        <font color="#b45309">UNPAID</font>', S('im4', fontName='Helvetica', fontSize=10, textColor=INK2, leading=16))],
+    ]]
+    meta_tbl = Table(meta_data, colWidths=[PW*0.5, PW*0.5])
+    meta_tbl.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('LEFTPADDING', (0,0), (-1,-1), 0),
+        ('RIGHTPADDING', (0,0), (-1,-1), 10),
+        ('TOPPADDING', (0,0), (-1,-1), 0),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+    ]))
+    story.append(meta_tbl)
+    story.append(Spacer(1, 8*mm))
+
+    # Service table
+    story.append(Paragraph('SERVICES', S('sh', fontName='Helvetica-Bold', fontSize=9, textColor=INK3, letterSpacing=1.5)))
+    story.append(Spacer(1, 2*mm))
+
+    svc_header = [
+        Paragraph('DESCRIPTION', S('th', fontName='Helvetica-Bold', fontSize=9, textColor=WHITE, letterSpacing=0.5)),
+        Paragraph('QTY', S('th2', fontName='Helvetica-Bold', fontSize=9, textColor=WHITE, alignment=TA_CENTER)),
+        Paragraph('AMOUNT', S('th3', fontName='Helvetica-Bold', fontSize=9, textColor=WHITE, alignment=TA_RIGHT)),
+    ]
+    svc_row = [
+        [Paragraph(f'<b>{plan["name"]}</b>', S('sd', fontName='Helvetica-Bold', fontSize=11, textColor=INK, leading=14)),
+         Paragraph(plan["desc"], S('ss', fontName='Helvetica', fontSize=9, leading=13, textColor=INK3))],
+        Paragraph('1', S('sq', fontName='Helvetica', fontSize=11, textColor=INK2, alignment=TA_CENTER)),
+        Paragraph(f'<b>{plan["price"]}</b>', S('sa', fontName='Helvetica-Bold', fontSize=13, textColor=INK, alignment=TA_RIGHT)),
+    ]
+    subtotal_row = [
+        Paragraph('Subtotal', S('sub', fontName='Helvetica', fontSize=10, textColor=INK3)),
+        '',
+        Paragraph(plan["price"], S('subv', fontName='Helvetica', fontSize=10, textColor=INK2, alignment=TA_RIGHT)),
+    ]
+    total_row = [
+        Paragraph('<b>TOTAL DUE</b>', S('tot', fontName='Helvetica-Bold', fontSize=13, textColor=INK)),
+        '',
+        Paragraph(f'<b>{plan["price"]}</b>', S('totv', fontName='Helvetica-Bold', fontSize=16, textColor=GREEN, alignment=TA_RIGHT)),
+    ]
+
+    svc_tbl = Table(
+        [svc_header, svc_row, subtotal_row, total_row],
+        colWidths=[PW*0.6, PW*0.15, PW*0.25]
+    )
+    svc_tbl.setStyle(TableStyle([
+        ('BACKGROUND',    (0,0), (-1,0), DARK),
+        ('TOPPADDING',    (0,0), (-1,-1), 10),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+        ('LEFTPADDING',   (0,0), (-1,-1), 10),
+        ('RIGHTPADDING',  (0,0), (-1,-1), 10),
+        ('VALIGN',        (0,0), (-1,-1), 'MIDDLE'),
+        ('ROWBACKGROUNDS',(0,1), (-1,1), [SURFACE]),
+        ('LINEBELOW',     (0,2), (-1,2), 0.5, colors.HexColor('#e2e0da')),
+        ('BACKGROUND',    (0,3), (-1,3), GREEN_BG),
+        ('BOX',           (0,0), (-1,-1), 0.5, colors.HexColor('#e2e0da')),
+        ('INNERGRID',     (0,0), (-1,-1), 0.25, colors.HexColor('#e2e0da')),
+    ]))
+    story.append(svc_tbl)
+    story.append(Spacer(1, 8*mm))
+
+    # Payment details
+    story.append(Paragraph('PAYMENT DETAILS', S('sh', fontName='Helvetica-Bold', fontSize=9, textColor=INK3, letterSpacing=1.5)))
+    story.append(Spacer(1, 2*mm))
+    pay_data = [
+        [Paragraph('Bank Name', S('pk', fontName='Helvetica', fontSize=10, textColor=INK3)),
+         Paragraph(f'<b>{bank_name}</b>', S('pv', fontName='Helvetica-Bold', fontSize=10, textColor=INK))],
+        [Paragraph('Account Name', S('pk2', fontName='Helvetica', fontSize=10, textColor=INK3)),
+         Paragraph(f'<b>{account_name}</b>', S('pv2', fontName='Helvetica-Bold', fontSize=10, textColor=INK))],
+        [Paragraph('Account Number', S('pk3', fontName='Helvetica', fontSize=10, textColor=INK3)),
+         Paragraph(f'<b>{account_number}</b>', S('pv3', fontName='Helvetica-Bold', fontSize=14, textColor=GREEN))],
+    ]
+    pay_tbl = Table(pay_data, colWidths=[PW*0.35, PW*0.65])
+    pay_tbl.setStyle(TableStyle([
+        ('BACKGROUND',    (0,0), (-1,-1), SURFACE),
+        ('ROWBACKGROUNDS',(0,0), (-1,-1), [SURFACE, WHITE]),
+        ('TOPPADDING',    (0,0), (-1,-1), 8),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+        ('LEFTPADDING',   (0,0), (-1,-1), 12),
+        ('RIGHTPADDING',  (0,0), (-1,-1), 12),
+        ('BOX',           (0,0), (-1,-1), 0.5, colors.HexColor('#e2e0da')),
+        ('INNERGRID',     (0,0), (-1,-1), 0.25, colors.HexColor('#e2e0da')),
+        ('LINEAFTER',     (0,0), (0,-1), 0.5, colors.HexColor('#e2e0da')),
+    ]))
+    story.append(pay_tbl)
+
+    if notes:
+        story.append(Spacer(1, 6*mm))
+        story.append(Paragraph('NOTES', S('sh', fontName='Helvetica-Bold', fontSize=9, textColor=INK3, letterSpacing=1.5)))
+        story.append(Spacer(1, 2*mm))
+        story.append(Paragraph(notes, S('nt', fontName='Helvetica', fontSize=10, leading=16, textColor=INK2)))
+
+    # Contact footer
+    story.append(Spacer(1, 8*mm))
+    story.append(Divider(colors.HexColor('#e2e0da')))
+    story.append(Spacer(1, 3*mm))
+    contact_parts = [auditor]
+    if auditor_email: contact_parts.append(auditor_email)
+    if auditor_phone: contact_parts.append(auditor_phone)
+    story.append(Paragraph('  ·  '.join(contact_parts), S('cf', fontName='Helvetica', fontSize=9, textColor=INK3, alignment=TA_CENTER)))
+
+    doc.build(story, onFirstPage=bg_page, onLaterPages=bg_page)
+    buf.seek(0)
+
+    from flask import send_file
+    return send_file(buf, mimetype='application/pdf',
+                     as_attachment=True,
+                     download_name=f"Atlas_Securecheck_Invoice_{invoice_number}.pdf")
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
