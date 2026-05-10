@@ -142,6 +142,34 @@ header{padding:36px 0 28px;border-bottom:1px solid var(--border2);margin-bottom:
 .export-btn:hover{border-color:var(--green);color:var(--green);}
 .error-msg{background:var(--red-dim);border:1px solid var(--red);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:11px;color:var(--red);display:none;margin-bottom:16px;}
 .error-msg.active{display:block;}
+
+/* ── Modal ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:100;align-items:center;justify-content:center;}
+.modal-overlay.open{display:flex;}
+.modal{background:#111418;border:1px solid #252d38;border-radius:12px;padding:28px;width:90%;max-width:520px;max-height:90vh;overflow-y:auto;}
+.modal-title{font-size:16px;font-weight:800;margin-bottom:6px;}
+.modal-sub{font-family:'Space Mono',monospace;font-size:10px;color:#7a8898;margin-bottom:20px;letter-spacing:1px;text-transform:uppercase;}
+.modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;}
+.modal-field{display:flex;flex-direction:column;gap:6px;}
+.modal-field.full{grid-column:1/-1;}
+.modal-field label{font-family:'Space Mono',monospace;font-size:10px;color:#7a8898;letter-spacing:1px;text-transform:uppercase;}
+.modal-field input,.modal-field select,.modal-field textarea{background:#0a0c0f;border:1px solid #252d38;border-radius:6px;color:#e8edf2;font-family:'Syne',sans-serif;font-size:13px;padding:9px 12px;outline:none;transition:border-color .2s;width:100%;}
+.modal-field input:focus,.modal-field select:focus,.modal-field textarea:focus{border-color:#00e676;}
+.modal-field textarea{resize:vertical;min-height:70px;}
+.modal-actions{display:flex;gap:10px;margin-top:8px;}
+.modal-btn{flex:1;padding:12px;border-radius:6px;font-family:'Syne',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;border:none;}
+.modal-btn.primary{background:#00e676;color:#000;}
+.modal-btn.primary:hover{opacity:.88;}
+.modal-btn.primary:disabled{opacity:.4;cursor:not-allowed;}
+.modal-btn.secondary{background:transparent;border:1px solid #252d38;color:#7a8898;}
+.modal-btn.secondary:hover{border-color:#e8edf2;color:#e8edf2;}
+.plan-selector{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;}
+.plan-opt{padding:12px 8px;border:1px solid #252d38;border-radius:6px;cursor:pointer;text-align:center;transition:all .15s;}
+.plan-opt.selected{border-color:#00e676;background:#00e67211;}
+.plan-opt .plan-name{font-size:12px;font-weight:700;margin-bottom:3px;}
+.plan-opt .plan-price{font-family:'Space Mono',monospace;font-size:11px;color:#00e676;}
+.plan-opt .plan-checks{font-family:'Space Mono',monospace;font-size:9px;color:#7a8898;margin-top:2px;}
+.generating-msg{font-family:'Space Mono',monospace;font-size:11px;color:#7a8898;text-align:center;padding:8px;}
 </style>
 </head>
 <body>
@@ -229,10 +257,140 @@ header{padding:36px 0 28px;border-bottom:1px solid var(--border2);margin-bottom:
     <div class="pitch-content" id="pitchContent"></div>
   </div>
   <div class="export-row">
-    <button class="export-btn" onclick="copyReport()">Copy Report</button>
-    <button class="export-btn" onclick="window.print()">Print / PDF</button>
+    <button class="export-btn" style="background:var(--green);color:#000;border-color:var(--green);font-weight:700;" onclick="openReportModal()">Generate Report PDF</button>
+    <button class="export-btn" style="border-color:var(--amber);color:var(--amber);" onclick="openInvoiceModal()">Create Invoice</button>
+    <button class="export-btn" onclick="copyReport()">Copy Text</button>
     <button class="export-btn" onclick="resetTool()">New Audit</button>
   </div>
+
+<!-- Report Modal -->
+<div class="modal-overlay" id="reportModal">
+  <div class="modal">
+    <div class="modal-title">Generate Audit Report</div>
+    <div class="modal-sub">Select plan · Add details · Download PDF</div>
+
+    <div class="plan-selector">
+      <div class="plan-opt selected" onclick="selectPlan('basic',this)">
+        <div class="plan-name">Basic</div>
+        <div class="plan-price">N40,000</div>
+        <div class="plan-checks">5 checks</div>
+      </div>
+      <div class="plan-opt" onclick="selectPlan('full',this)">
+        <div class="plan-name">Full</div>
+        <div class="plan-price">N100,000</div>
+        <div class="plan-checks">9 checks</div>
+      </div>
+      <div class="plan-opt" onclick="selectPlan('monthly',this)">
+        <div class="plan-name">Monthly</div>
+        <div class="plan-price">N50,000/mo</div>
+        <div class="plan-checks">9 checks</div>
+      </div>
+    </div>
+
+    <div class="modal-grid">
+      <div class="modal-field">
+        <label>Audit Date</label>
+        <input type="date" id="rpt_date">
+      </div>
+      <div class="modal-field">
+        <label>Your Name / Firm</label>
+        <input type="text" id="rpt_auditor" placeholder="Atlas Securecheck" value="Atlas Securecheck">
+      </div>
+      <div class="modal-field full">
+        <label>Additional Notes (optional)</label>
+        <textarea id="rpt_notes" placeholder="Add any custom recommendations or context..."></textarea>
+      </div>
+    </div>
+    <div class="generating-msg" id="rptGenerating" style="display:none;">Generating PDF — please wait...</div>
+    <div class="modal-actions">
+      <button class="modal-btn secondary" onclick="closeModal('reportModal')">Cancel</button>
+      <button class="modal-btn primary" id="rptDownloadBtn" onclick="downloadReport()">Download Report PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- Invoice Modal -->
+<div class="modal-overlay" id="invoiceModal">
+  <div class="modal">
+    <div class="modal-title">Create Invoice</div>
+    <div class="modal-sub">Fill in details · Download PDF</div>
+
+    <div class="plan-selector">
+      <div class="plan-opt selected" onclick="selectInvPlan('basic',this)">
+        <div class="plan-name">Basic</div>
+        <div class="plan-price">N40,000</div>
+      </div>
+      <div class="plan-opt" onclick="selectInvPlan('full',this)">
+        <div class="plan-name">Full</div>
+        <div class="plan-price">N100,000</div>
+      </div>
+      <div class="plan-opt" onclick="selectInvPlan('monthly',this)">
+        <div class="plan-name">Monthly</div>
+        <div class="plan-price">N50,000/mo</div>
+      </div>
+    </div>
+
+    <div class="modal-grid">
+      <div class="modal-field">
+        <label>Client Name</label>
+        <input type="text" id="inv_client" placeholder="Business name">
+      </div>
+      <div class="modal-field">
+        <label>Client Contact</label>
+        <input type="text" id="inv_contact" placeholder="Contact person">
+      </div>
+      <div class="modal-field">
+        <label>Client Email</label>
+        <input type="text" id="inv_email" placeholder="client@email.com">
+      </div>
+      <div class="modal-field">
+        <label>Invoice Number</label>
+        <input type="text" id="inv_number" placeholder="INV-001">
+      </div>
+      <div class="modal-field">
+        <label>Issue Date</label>
+        <input type="date" id="inv_issue">
+      </div>
+      <div class="modal-field">
+        <label>Due Date</label>
+        <input type="date" id="inv_due">
+      </div>
+      <div class="modal-field">
+        <label>Your Name / Firm</label>
+        <input type="text" id="inv_auditor" placeholder="Atlas Securecheck" value="Atlas Securecheck">
+      </div>
+      <div class="modal-field">
+        <label>Your Email</label>
+        <input type="text" id="inv_aud_email" placeholder="your@email.com">
+      </div>
+      <div class="modal-field">
+        <label>Your Phone</label>
+        <input type="text" id="inv_phone" placeholder="+234 ...">
+      </div>
+      <div class="modal-field">
+        <label>Bank Name</label>
+        <input type="text" id="inv_bank" placeholder="GTBank">
+      </div>
+      <div class="modal-field">
+        <label>Account Name</label>
+        <input type="text" id="inv_acc_name" placeholder="Your full name">
+      </div>
+      <div class="modal-field">
+        <label>Account Number</label>
+        <input type="text" id="inv_acc_num" placeholder="0123456789">
+      </div>
+      <div class="modal-field full">
+        <label>Notes (optional)</label>
+        <textarea id="inv_notes" placeholder="Payment terms, thank you message..."></textarea>
+      </div>
+    </div>
+    <div class="generating-msg" id="invGenerating" style="display:none;">Generating Invoice — please wait...</div>
+    <div class="modal-actions">
+      <button class="modal-btn secondary" onclick="closeModal('invoiceModal')">Cancel</button>
+      <button class="modal-btn primary" id="invDownloadBtn" onclick="downloadInvoice()">Download Invoice PDF</button>
+    </div>
+  </div>
+</div>
 </div>
 
 </div>
@@ -568,6 +726,158 @@ document.getElementById('urlInput').addEventListener('keydown', e => { if (e.key
 document.getElementById('keyGSB').value = getKey('atlas_gsb_key');
 document.getElementById('keyURLScan').value = getKey('atlas_urlscan_key');
 updateSrcTags();
+
+// ── Plan selection ─────────────────────────────────────────────────────────
+let selectedPlan = 'basic';
+let selectedInvPlan = 'basic';
+
+function selectPlan(plan, el) {
+  selectedPlan = plan;
+  document.querySelectorAll('#reportModal .plan-opt').forEach(e => e.classList.remove('selected'));
+  el.classList.add('selected');
+}
+function selectInvPlan(plan, el) {
+  selectedInvPlan = plan;
+  document.querySelectorAll('#invoiceModal .plan-opt').forEach(e => e.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+// ── Modal helpers ──────────────────────────────────────────────────────────
+function openReportModal() {
+  if (!auditResult) return;
+  document.getElementById('rpt_date').value = new Date().toISOString().split('T')[0];
+  // Pre-fill client name from scan
+  document.getElementById('reportModal').classList.add('open');
+}
+function openInvoiceModal() {
+  const today = new Date();
+  const due = new Date(); due.setDate(due.getDate() + 7);
+  document.getElementById('inv_issue').value = today.toISOString().split('T')[0];
+  document.getElementById('inv_due').value = due.toISOString().split('T')[0];
+  if (auditResult) {
+    document.getElementById('inv_client').value = auditResult.bizName || '';
+  }
+  // Restore saved bank details
+  document.getElementById('inv_bank').value = localStorage.getItem('atlas_bank') || '';
+  document.getElementById('inv_acc_name').value = localStorage.getItem('atlas_acc_name') || '';
+  document.getElementById('inv_acc_num').value = localStorage.getItem('atlas_acc_num') || '';
+  document.getElementById('inv_auditor').value = localStorage.getItem('atlas_auditor') || 'Atlas Securecheck';
+  document.getElementById('inv_aud_email').value = localStorage.getItem('atlas_aud_email') || '';
+  document.getElementById('inv_phone').value = localStorage.getItem('atlas_phone') || '';
+  document.getElementById('invoiceModal').classList.add('open');
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+// ── Report PDF download ────────────────────────────────────────────────────
+async function downloadReport() {
+  if (!auditResult) return;
+  const btn = document.getElementById('rptDownloadBtn');
+  const msg = document.getElementById('rptGenerating');
+  btn.disabled = true;
+  msg.style.display = 'block';
+
+  const payload = {
+    plan: selectedPlan,
+    biz_name:   auditResult.bizName,
+    biz_sector: auditResult.bizSector,
+    biz_city:   auditResult.bizCity,
+    url:        auditResult.url,
+    domain:     auditResult.domain,
+    score:      auditResult.score,
+    checks:     auditResult.checks,
+    api_results:auditResult.api_results,
+    audit_date: formatDate(document.getElementById('rpt_date').value),
+    auditor:    document.getElementById('rpt_auditor').value || 'Atlas Securecheck',
+    notes:      document.getElementById('rpt_notes').value,
+  };
+
+  try {
+    const resp = await fetch('/api/generate-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30000)
+    });
+    if (!resp.ok) { alert('Report generation failed. Try again.'); return; }
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `Atlas_Securecheck_${auditResult.bizName.replace(/\s+/g,'_')}_Report.pdf`;
+    a.click();
+    closeModal('reportModal');
+  } catch(e) {
+    alert('Download failed — check your connection.');
+  } finally {
+    btn.disabled = false;
+    msg.style.display = 'none';
+  }
+}
+
+// ── Invoice PDF download ───────────────────────────────────────────────────
+async function downloadInvoice() {
+  const btn = document.getElementById('invDownloadBtn');
+  const msg = document.getElementById('invGenerating');
+  btn.disabled = true;
+  msg.style.display = 'block';
+
+  // Save bank details for next time
+  localStorage.setItem('atlas_bank', document.getElementById('inv_bank').value);
+  localStorage.setItem('atlas_acc_name', document.getElementById('inv_acc_name').value);
+  localStorage.setItem('atlas_acc_num', document.getElementById('inv_acc_num').value);
+  localStorage.setItem('atlas_auditor', document.getElementById('inv_auditor').value);
+  localStorage.setItem('atlas_aud_email', document.getElementById('inv_aud_email').value);
+  localStorage.setItem('atlas_phone', document.getElementById('inv_phone').value);
+
+  const payload = {
+    plan:           selectedInvPlan,
+    biz_name:       document.getElementById('inv_client').value,
+    biz_contact:    document.getElementById('inv_contact').value,
+    biz_email:      document.getElementById('inv_email').value,
+    invoice_number: document.getElementById('inv_number').value || 'INV-001',
+    issue_date:     formatDate(document.getElementById('inv_issue').value),
+    due_date:       formatDate(document.getElementById('inv_due').value),
+    auditor:        document.getElementById('inv_auditor').value,
+    auditor_email:  document.getElementById('inv_aud_email').value,
+    auditor_phone:  document.getElementById('inv_phone').value,
+    bank_name:      document.getElementById('inv_bank').value,
+    account_name:   document.getElementById('inv_acc_name').value,
+    account_number: document.getElementById('inv_acc_num').value,
+    notes:          document.getElementById('inv_notes').value,
+  };
+
+  try {
+    const resp = await fetch('/api/generate-invoice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30000)
+    });
+    if (!resp.ok) { alert('Invoice generation failed. Try again.'); return; }
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `Atlas_Securecheck_Invoice_${payload.invoice_number}.pdf`;
+    a.click();
+    closeModal('invoiceModal');
+  } catch(e) {
+    alert('Download failed — check your connection.');
+  } finally {
+    btn.disabled = false;
+    msg.style.display = 'none';
+  }
+}
+
+function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T12:00:00');
+  return d.toLocaleDateString('en-NG', { day:'numeric', month:'long', year:'numeric' });
+}
+
+// Close modals on overlay click
+document.getElementById('reportModal').addEventListener('click', e => { if (e.target.id === 'reportModal') closeModal('reportModal'); });
+document.getElementById('invoiceModal').addEventListener('click', e => { if (e.target.id === 'invoiceModal') closeModal('invoiceModal'); });
 </script>
 </body>
 </html>
