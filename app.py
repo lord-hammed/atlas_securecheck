@@ -4,6 +4,8 @@ import time
 import json
 import requests
 import threading
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from urllib.parse import urlparse
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -22,13 +24,31 @@ def get_domain(url):
         return url
 
 def fetch_page(url):
-    try:
-        r = requests.get(url, timeout=TIMEOUT, headers={
-            "User-Agent": "Mozilla/5.0 (compatible; AtlasSecurecheck/2.0)"
-        }, allow_redirects=True)
-        return r.text
-    except:
-        return None
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+    }
+    urls_to_try = [url]
+    if url.startswith("https://"):
+        urls_to_try.append(url.replace("https://", "http://"))
+    else:
+        urls_to_try.append(url.replace("http://", "https://"))
+
+    for attempt_url in urls_to_try:
+        try:
+            r = requests.get(attempt_url, timeout=TIMEOUT, headers=headers,
+                             allow_redirects=True, verify=False)
+            if r.status_code == 403:
+                return "__BLOCKED__"
+            if r.status_code < 400 and r.text and len(r.text) > 100:
+                return r.text
+        except:
+            continue
+    return None
 
 def detect_privacy(html):
     patterns = [
@@ -278,7 +298,8 @@ def scan():
 
     # ── Built-in checks ──
     home_html = fetch_page(url)
-    fetch_ok = home_html is not None
+    fetch_ok = home_html is not None and home_html != "__BLOCKED__"
+    fetch_blocked = home_html == "__BLOCKED__"
 
     has_privacy = False
     if fetch_ok:
@@ -294,9 +315,12 @@ def scan():
                     break
             if not has_privacy:
                 for path in ["/privacy-policy", "/privacy", "/data-protection"]:
-                    sub = fetch_page(f"{'https' if is_https else 'http'}://{domain}{path}")
-                    if sub and len(sub) > 400 and detect_privacy(sub):
-                        has_privacy = True
+                    for scheme in ["https", "http"]:
+                        sub = fetch_page(f"{scheme}://{domain}{path}")
+                        if sub and len(sub) > 400 and detect_privacy(sub):
+                            has_privacy = True
+                            break
+                    if has_privacy:
                         break
 
     has_cookie = fetch_ok and detect_cookie(home_html)
@@ -340,22 +364,22 @@ def scan():
         "privacy": {
             "pass": has_privacy,
             "status": "info" if not fetch_ok else ("pass" if has_privacy else "fail"),
-            "note": "Could not load site" if not fetch_ok else ("Privacy policy found" if has_privacy else "No privacy policy detected")
+            "note": "Site blocked server access — verify manually in browser" if fetch_blocked else ("Could not load site" if not fetch_ok else ("Privacy policy found" if has_privacy else "No privacy policy detected"))
         },
         "cookie": {
             "pass": has_cookie,
             "status": "info" if not fetch_ok else ("pass" if has_cookie else "warn"),
-            "note": "Could not load site" if not fetch_ok else ("Cookie consent tool detected" if has_cookie else "No cookie consent banner found")
+            "note": "Site blocked server access — verify manually in browser" if fetch_blocked else ("Could not load site" if not fetch_ok else ("Cookie consent tool detected" if has_cookie else "No cookie consent banner found"))
         },
         "cms": {
             "pass": not cms_result["version_exposed"],
             "status": "info" if not fetch_ok else ("warn" if cms_result["version_exposed"] else "pass"),
-            "note": (f"{cms_result['detected']} detected — version {'exposed' if cms_result['version_exposed'] else 'hidden'}" if cms_result["detected"] else "No CMS fingerprint found")
+            "note": "Site blocked server access — verify manually in browser" if fetch_blocked else (f"{cms_result['detected']} detected — version {'exposed' if cms_result['version_exposed'] else 'hidden'}" if cms_result["detected"] else "No CMS fingerprint found")
         },
         "mixed": {
             "pass": not has_mixed,
             "status": "info" if not fetch_ok else ("fail" if has_mixed else "pass"),
-            "note": "HTTP resources found on HTTPS page" if has_mixed else "No mixed content detected"
+            "note": "Site blocked server access — verify manually in browser" if fetch_blocked else ("HTTP resources found on HTTPS page" if has_mixed else "No mixed content detected")
         },
     }
 
