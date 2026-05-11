@@ -136,9 +136,9 @@ def check_observatory(domain):
 
 def check_ssl_labs(domain):
     try:
-        # Check cache first — returns instantly if already scanned recently
         poll_url = f"https://api.ssllabs.com/api/v3/analyze?host={domain}&all=done"
-        r = requests.get(poll_url, timeout=15)
+        # Check cache first
+        r = requests.get(poll_url, timeout=12)
         if r.ok:
             data = r.json()
             if data.get("status") == "READY" and data.get("endpoints"):
@@ -150,31 +150,30 @@ def check_ssl_labs(domain):
                     "is_exceptional": ep.get("isExceptional", False),
                     "cached": True
                 }
-
-        # Not cached — start new scan
+        # Start new scan
         start_url = f"https://api.ssllabs.com/api/v3/analyze?host={domain}&startNew=on&all=done&ignoreMismatch=on"
-        requests.get(start_url, timeout=15)
-        time.sleep(8)
-
-        for attempt in range(20):
-            r = requests.get(poll_url, timeout=15)
-            if not r.ok:
-                time.sleep(6)
-                continue
-            data = r.json()
-            if data.get("status") == "ERROR":
-                return None
-            if data.get("status") == "READY" and data.get("endpoints"):
-                ep = data["endpoints"][0]
-                return {
-                    "grade": ep.get("grade") or ep.get("gradeTrust") or "T",
-                    "ip": ep.get("ipAddress"),
-                    "has_warnings": ep.get("hasWarnings", False),
-                    "is_exceptional": ep.get("isExceptional", False),
-                }
-            time.sleep(6)
+        requests.get(start_url, timeout=12)
+        time.sleep(6)
+        for attempt in range(12):
+            try:
+                r = requests.get(poll_url, timeout=12)
+                if r.ok:
+                    data = r.json()
+                    if data.get("status") == "ERROR":
+                        return None
+                    if data.get("status") == "READY" and data.get("endpoints"):
+                        ep = data["endpoints"][0]
+                        return {
+                            "grade": ep.get("grade") or ep.get("gradeTrust") or "T",
+                            "ip": ep.get("ipAddress"),
+                            "has_warnings": ep.get("hasWarnings", False),
+                            "is_exceptional": ep.get("isExceptional", False),
+                        }
+            except Exception:
+                pass
+            time.sleep(7)
         return None
-    except:
+    except Exception:
         return None
 
 def check_urlscan(url):
