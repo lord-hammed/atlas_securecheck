@@ -3,9 +3,11 @@ services:
     name: atlas-securecheck
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    startCommand: gunicorn app:app --config gunicorn.conf.py
     envVars:
       - key: GSB_API_KEY
         sync: false
       - key: URLSCAN_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
         sync: false
