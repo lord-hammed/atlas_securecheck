@@ -467,14 +467,24 @@ async function runAudit() {
   progZone.classList.add('active');
   document.getElementById('progBar').style.width = '5%';
 
-  addLog('Sending to Atlas Securecheck server...');
+  // Step 0: Wake up the server first (free tier sleeps after 15min)
+  addLog('Waking up server...');
+  try {
+    await fetch('/health', { signal: AbortSignal.timeout(15000) });
+    doneLastLog();
+  } catch(e) {
+    // Server still starting — continue anyway
+    doneLastLog();
+  }
+
+  addLog('Sending scan request to Atlas Securecheck...');
 
   // Animate progress while server works
   const progressSteps = [
     [10, 'Fetching homepage content...'],
     [22, 'Checking privacy policy and cookie consent...'],
     [34, 'Running Mozilla Observatory scan...'],
-    [50, 'Running SSL Labs certificate analysis...'],
+    [50, 'Running SSL Labs certificate analysis (this takes ~60s)...'],
     [66, 'Running URLScan.io threat check...'],
     [80, 'Running Google Safe Browsing check...'],
     [90, 'Compiling results...'],
@@ -488,7 +498,7 @@ async function runAudit() {
       document.getElementById('progBar').style.width = pct + '%';
       stepIdx++;
     }
-  }, 18000);
+  }, 20000);
 
   try {
     const resp = await fetch('/api/scan', {
@@ -528,7 +538,7 @@ async function runAudit() {
 
   } catch(e) {
     clearInterval(progressInterval);
-    showError('Request timed out or server unreachable. The scan can take up to 3 minutes — please try again.');
+    showError('Scan timed out — the server may have been asleep. Wait 10 seconds and click Run Audit again. Second attempt almost always works.');
   }
 
   document.getElementById('scanBtn').disabled = false;
