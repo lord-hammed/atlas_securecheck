@@ -515,7 +515,7 @@ def bg_page(canvas, doc):
     canvas.rect(0, 0, W, 16*mm, fill=1, stroke=0)
     canvas.setFillColor(INK3)
     canvas.setFont('Helvetica', 7)
-    canvas.drawString(22*mm, 6*mm, 'Atlas Securecheck  ·  Website Security Audit Report  ·  Confidential')
+    canvas.drawString(22*mm, 6*mm, 'Atlas Securecheck  ·  Confidential')
     canvas.setFillColor(GREEN)
     canvas.setFont('Helvetica-Bold', 8)
     canvas.drawRightString(W - 22*mm, 6*mm, f'Page {doc.page}')
@@ -731,6 +731,7 @@ def generate_report():
         Paragraph(f'Prepared by: <b>{auditor}</b><br/>Audit date: {audit_date}<br/>Report type: {plan["name"]} ({plan["checks"]}-point audit)', S('fi', fontName='Helvetica', fontSize=9, leading=14, textColor=INK3)),
         Paragraph(f'<b>{plan["price"]}</b><br/><font size=8 color="#6b7280">Service fee</font>', S('fp', fontName='Helvetica-Bold', fontSize=18, textColor=INK, alignment=TA_RIGHT, leading=22)),
     ]]
+    # Note: Tool URL intentionally excluded from report
     footer_tbl = Table(footer_data, colWidths=[PW * 0.6, PW * 0.4])
     footer_tbl.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), SURFACE),
@@ -949,7 +950,7 @@ def generate_outreach():
     story.append(Spacer(1, 3*mm))
     footer_parts = [f'<b>{auditor}</b>']
     if audit_date: footer_parts.append(f'Scan date: {audit_date}')
-    footer_parts.append(f'atlas-securecheck.onrender.com')
+    # URL intentionally excluded from outreach summary
     story.append(Paragraph(
         '  ·  '.join(footer_parts),
         S('ft', fontName='Helvetica', fontSize=9, textColor=INK3, alignment=TA_CENTER)
@@ -1125,6 +1126,7 @@ def generate_invoice():
     if auditor_email: contact_parts.append(auditor_email)
     if auditor_phone: contact_parts.append(auditor_phone)
     story.append(Paragraph('  ·  '.join(contact_parts), S('cf', fontName='Helvetica', fontSize=9, textColor=INK3, alignment=TA_CENTER)))
+    # Note: Tool URL intentionally excluded from invoice
 
     doc.build(story, onFirstPage=bg_page, onLaterPages=bg_page)
     buf.seek(0)
