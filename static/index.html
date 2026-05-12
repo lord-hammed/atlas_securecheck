@@ -258,10 +258,47 @@ header{padding:36px 0 28px;border-bottom:1px solid var(--border2);margin-bottom:
   </div>
   <div class="export-row">
     <button class="export-btn" style="background:var(--green);color:#000;border-color:var(--green);font-weight:700;" onclick="openReportModal()">Generate Report PDF</button>
+    <button class="export-btn" style="border-color:var(--blue);color:var(--blue);font-weight:600;" onclick="openOutreachModal()">Outreach Summary</button>
     <button class="export-btn" style="border-color:var(--amber);color:var(--amber);" onclick="openInvoiceModal()">Create Invoice</button>
     <button class="export-btn" onclick="copyReport()">Copy Text</button>
     <button class="export-btn" onclick="resetTool()">New Audit</button>
   </div>
+
+<!-- Outreach Modal -->
+<div class="modal-overlay" id="outreachModal">
+  <div class="modal">
+    <div class="modal-title">Outreach Summary</div>
+    <div class="modal-sub">Free one-page teaser · No pricing · For prospects</div>
+
+    <div class="modal-grid">
+      <div class="modal-field">
+        <label>Scan Date</label>
+        <input type="date" id="out_date">
+      </div>
+      <div class="modal-field">
+        <label>Your Name / Firm</label>
+        <input type="text" id="out_auditor" placeholder="Atlas Securecheck" value="Atlas Securecheck">
+      </div>
+    </div>
+
+    <div style="background:var(--blue-dim);border:1px solid var(--blue);border-radius:6px;padding:12px 14px;margin-bottom:16px;">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--blue);margin-bottom:6px;letter-spacing:1px;">WHAT THIS INCLUDES</div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.7;">
+        ✓ Security score out of 100<br>
+        ✓ 5 key findings in plain English<br>
+        ✓ NDPR compliance warning if relevant<br>
+        ✗ No pricing or plan information<br>
+        ✗ No technical jargon
+      </div>
+    </div>
+
+    <div class="generating-msg" id="outGenerating" style="display:none;">Generating summary — please wait...</div>
+    <div class="modal-actions">
+      <button class="modal-btn secondary" onclick="closeModal('outreachModal')">Cancel</button>
+      <button class="modal-btn primary" id="outDownloadBtn" onclick="downloadOutreach()" style="background:var(--blue);color:#fff;">Download Outreach Summary</button>
+    </div>
+  </div>
+</div>
 
 <!-- Report Modal -->
 <div class="modal-overlay" id="reportModal">
@@ -888,6 +925,55 @@ function formatDate(iso) {
 // Close modals on overlay click
 document.getElementById('reportModal').addEventListener('click', e => { if (e.target.id === 'reportModal') closeModal('reportModal'); });
 document.getElementById('invoiceModal').addEventListener('click', e => { if (e.target.id === 'invoiceModal') closeModal('invoiceModal'); });
+document.getElementById('outreachModal').addEventListener('click', e => { if (e.target.id === 'outreachModal') closeModal('outreachModal'); });
+
+// ── Outreach modal ─────────────────────────────────────────────────────────
+function openOutreachModal() {
+  if (!auditResult) return;
+  document.getElementById('out_date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('outreachModal').classList.add('open');
+}
+
+async function downloadOutreach() {
+  if (!auditResult) return;
+  const btn = document.getElementById('outDownloadBtn');
+  const msg = document.getElementById('outGenerating');
+  btn.disabled = true;
+  msg.style.display = 'block';
+
+  const payload = {
+    biz_name:   auditResult.bizName,
+    biz_sector: auditResult.bizSector,
+    biz_city:   auditResult.bizCity,
+    url:        auditResult.url,
+    domain:     auditResult.domain,
+    score:      auditResult.score,
+    checks:     auditResult.checks,
+    audit_date: formatDate(document.getElementById('out_date').value),
+    auditor:    document.getElementById('out_auditor').value || 'Atlas Securecheck',
+  };
+
+  try {
+    const resp = await fetch('/api/generate-outreach', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30000)
+    });
+    if (!resp.ok) { alert('Generation failed. Try again.'); return; }
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `Atlas_Securecheck_${auditResult.bizName.replace(/\s+/g,'_')}_Summary.pdf`;
+    a.click();
+    closeModal('outreachModal');
+  } catch(e) {
+    alert('Download failed — check your connection.');
+  } finally {
+    btn.disabled = false;
+    msg.style.display = 'none';
+  }
+}
 </script>
 </body>
 </html>
