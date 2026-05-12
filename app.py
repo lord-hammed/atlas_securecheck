@@ -753,6 +753,218 @@ def generate_report():
                      download_name=f"Atlas_Securecheck_{safe_name}_Report.pdf")
 
 
+@app.route("/api/generate-outreach", methods=["POST"])
+def generate_outreach():
+    """One-page outreach summary — no pricing, no plan labels. For prospect use."""
+    d = request.json or {}
+    biz_name   = d.get("biz_name", "Business")
+    biz_sector = d.get("biz_sector", "")
+    biz_city   = d.get("biz_city", "")
+    url        = d.get("url", "")
+    domain     = d.get("domain", "")
+    score      = d.get("score", 0)
+    checks     = d.get("checks", {})
+    audit_date = d.get("audit_date", "")
+    auditor    = d.get("auditor", "Atlas Securecheck")
+
+    # Only show the 5 basic checks in outreach — don't overwhelm the prospect
+    outreach_checks = [c for c in CHECKS_META if c["basic"]]
+
+    if score >= 80:   risk_label, risk_color = "LOW RISK",  GREEN
+    elif score >= 55: risk_label, risk_color = "AT RISK",   AMBER
+    else:             risk_label, risk_color = "CRITICAL",  RED
+
+    fails  = [c for c in outreach_checks if checks.get(c["id"], {}).get("status") == "fail"]
+    warns  = [c for c in outreach_checks if checks.get(c["id"], {}).get("status") == "warn"]
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+        leftMargin=22*mm, rightMargin=22*mm,
+        topMargin=20*mm, bottomMargin=22*mm,
+        title=f"Atlas Securecheck — Security Summary for {biz_name}")
+
+    PW = doc.width
+    story = []
+    story.append(Spacer(1, 6*mm))
+
+    # ── Header ──
+    story.append(Paragraph(
+        '<b>Atlas Securecheck</b>',
+        S('h1', fontName='Helvetica-Bold', fontSize=14, textColor=GREEN, spaceAfter=2)
+    ))
+    story.append(Paragraph(
+        'WEBSITE SECURITY SUMMARY',
+        S('h2', fontName='Helvetica', fontSize=9, textColor=INK3, letterSpacing=2, spaceAfter=0)
+    ))
+    story.append(Divider(GREEN, 2))
+    story.append(Spacer(1, 5*mm))
+
+    # ── Intro message ──
+    intro = (
+        f"We conducted a free preliminary security scan of <b>{biz_name}</b>'s website "
+        f"({domain}) and identified {len(fails)} critical issue(s) and {len(warns)} warning(s) "
+        f"that may be putting your business and customers at risk."
+    )
+    story.append(Paragraph(intro, S('intro', fontName='Helvetica', fontSize=11, leading=18, textColor=INK2)))
+    story.append(Spacer(1, 5*mm))
+
+    # ── Score banner ──
+    score_color_hex = '#00875a' if score >= 80 else '#b45309' if score >= 55 else '#c0392b'
+    banner_data = [[
+        Paragraph(
+            f'<b>{score}</b><br/><font size=9>Security Score</font>',
+            S('sc', fontName='Helvetica-Bold', fontSize=32, textColor=colors.HexColor(score_color_hex),
+              alignment=TA_CENTER, leading=38)
+        ),
+        Paragraph(
+            f'<b>{risk_label}</b><br/><br/>'
+            f'<font size=10>{len(fails)} critical &nbsp;·&nbsp; {len(warns)} warnings</font>',
+            S('rl', fontName='Helvetica-Bold', fontSize=16, textColor=colors.HexColor(score_color_hex),
+              alignment=TA_CENTER, leading=22)
+        ),
+    ]]
+    banner_tbl = Table(banner_data, colWidths=[PW*0.35, PW*0.65])
+    banner_tbl.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), SURFACE),
+        ('TOPPADDING', (0,0), (-1,-1), 14),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 14),
+        ('LEFTPADDING', (0,0), (-1,-1), 12),
+        ('RIGHTPADDING', (0,0), (-1,-1), 12),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LINEAFTER', (0,0), (0,-1), 1, colors.HexColor('#e2e0da')),
+        ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e0da')),
+    ]))
+    story.append(banner_tbl)
+    story.append(Spacer(1, 6*mm))
+
+    # ── Findings ──
+    story.append(Paragraph(
+        'WHAT WE FOUND',
+        S('sh', fontName='Helvetica-Bold', fontSize=9, textColor=INK3, letterSpacing=1.5)
+    ))
+    story.append(Divider(colors.HexColor('#e2e0da')))
+    story.append(Spacer(1, 3*mm))
+
+    for chk in outreach_checks:
+        r = checks.get(chk["id"], {"status": "info", "note": "Not checked"})
+        status = r.get("status", "info")
+        col, bg, icon, badge = STATUS_COLORS.get(status, STATUS_COLORS["info"])
+
+        # Plain English explanation for prospects
+        plain_notes = {
+            "https":   {
+                "fail": "Your website is not encrypted. Customer data — names, emails, phone numbers — is sent in plain text that anyone can intercept.",
+                "pass": "Your website uses HTTPS encryption. Customer data is protected in transit.",
+                "warn": "HTTPS is partially configured. Some pages may still be unencrypted.",
+            },
+            "privacy": {
+                "fail": "No privacy policy was found. Under Nigerian law (NDPR 2019), any business that collects customer data must publish a privacy policy.",
+                "pass": "A privacy policy is present on the website.",
+                "warn": "A privacy policy may be present but appears incomplete.",
+            },
+            "cookie":  {
+                "fail": "No cookie consent notice was detected. Websites using tracking tools must inform visitors before collecting data.",
+                "pass": "Cookie consent is handled on the website.",
+                "warn": "A cookie notice exists but may not fully comply with best practices.",
+            },
+            "cms":     {
+                "warn": "Your website platform version is publicly visible. Attackers use this to find known vulnerabilities specific to that version.",
+                "pass": "Platform version information is properly hidden.",
+                "fail": "Your CMS version is exposed, making it easier for attackers to target your site.",
+            },
+            "mixed":   {
+                "fail": "Some content on your website loads without encryption, creating security gaps even on HTTPS pages.",
+                "pass": "All content loads securely — no mixed content issues detected.",
+                "warn": "Some resources may be loading without full encryption.",
+            },
+        }
+        note_text = plain_notes.get(chk["id"], {}).get(status, r.get("note",""))
+
+        row_data = [[
+            Paragraph(f'<b>{icon}</b>', S('ri', fontName='Helvetica-Bold', fontSize=13, textColor=col, alignment=TA_CENTER)),
+            [Paragraph(f'<b>{chk["name"]}</b>', S('rn', fontName='Helvetica-Bold', fontSize=11, textColor=INK, leading=14, spaceAfter=3)),
+             Paragraph(note_text, S('rd', fontName='Helvetica', fontSize=9, leading=14, textColor=INK2, spaceAfter=0))],
+            Paragraph(badge, S('rb', fontName='Helvetica-Bold', fontSize=8, textColor=col, alignment=TA_CENTER)),
+        ]]
+        row_tbl = Table(row_data, colWidths=[10*mm, PW - 26*mm, 16*mm])
+        row_tbl.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), bg if status in ['fail','warn'] else WHITE),
+            ('LEFTPADDING', (0,0), (-1,-1), 8),
+            ('RIGHTPADDING', (0,0), (-1,-1), 8),
+            ('TOPPADDING', (0,0), (-1,-1), 10),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e0da')),
+            ('LINEBELOW', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e0da')),
+        ]))
+        story.append(row_tbl)
+        story.append(Spacer(1, 3*mm))
+
+    # ── NDPR note if relevant ──
+    ndpr_fail = any(checks.get(i, {}).get("status") == "fail"
+                    for i in ["https", "privacy", "cookie"])
+    if ndpr_fail:
+        story.append(Spacer(1, 2*mm))
+        ndpr_data = [[
+            Paragraph('⚠', S('nw', fontName='Helvetica-Bold', fontSize=16, textColor=AMBER, alignment=TA_CENTER)),
+            Paragraph(
+                '<b>NDPR Compliance Notice</b><br/>'
+                'One or more of the above issues may constitute a violation of the Nigeria Data Protection '
+                'Regulation (NDPR) 2019. Non-compliance can attract penalties of up to <b>₦10 million</b>.',
+                S('nb', fontName='Helvetica', fontSize=9, leading=14, textColor=colors.HexColor('#78350f'))
+            ),
+        ]]
+        ndpr_tbl = Table(ndpr_data, colWidths=[12*mm, PW - 12*mm])
+        ndpr_tbl.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), AMBER_BG),
+            ('BOX', (0,0), (-1,-1), 1, AMBER),
+            ('LEFTPADDING', (0,0), (-1,-1), 10),
+            ('RIGHTPADDING', (0,0), (-1,-1), 10),
+            ('TOPPADDING', (0,0), (-1,-1), 10),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(ndpr_tbl)
+        story.append(Spacer(1, 4*mm))
+
+    # ── Next steps ──
+    story.append(Spacer(1, 3*mm))
+    story.append(Paragraph(
+        'WHAT HAPPENS NEXT',
+        S('sh2', fontName='Helvetica-Bold', fontSize=9, textColor=INK3, letterSpacing=1.5)
+    ))
+    story.append(Divider(colors.HexColor('#e2e0da')))
+    story.append(Spacer(1, 3*mm))
+    story.append(Paragraph(
+        'This is a preliminary scan covering 5 key security indicators. A full professional audit '
+        'covers 9 checks including SSL certificate analysis, threat database lookups, and a '
+        'comprehensive compliance report your developer can act on directly. '
+        'Reach out to discuss next steps.',
+        S('ns', fontName='Helvetica', fontSize=10, leading=16, textColor=INK2)
+    ))
+
+    # ── Footer ──
+    story.append(Spacer(1, 6*mm))
+    story.append(Divider(colors.HexColor('#e2e0da')))
+    story.append(Spacer(1, 3*mm))
+    footer_parts = [f'<b>{auditor}</b>']
+    if audit_date: footer_parts.append(f'Scan date: {audit_date}')
+    footer_parts.append(f'atlas-securecheck.onrender.com')
+    story.append(Paragraph(
+        '  ·  '.join(footer_parts),
+        S('ft', fontName='Helvetica', fontSize=9, textColor=INK3, alignment=TA_CENTER)
+    ))
+
+    doc.build(story, onFirstPage=bg_page, onLaterPages=bg_page)
+    buf.seek(0)
+
+    from flask import send_file
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', biz_name)
+    return send_file(buf, mimetype='application/pdf',
+                     as_attachment=True,
+                     download_name=f"Atlas_Securecheck_{safe_name}_Security_Summary.pdf")
+
+
 @app.route("/api/generate-invoice", methods=["POST"])
 def generate_invoice():
     d = request.json or {}
