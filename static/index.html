@@ -143,6 +143,26 @@ header{padding:36px 0 28px;border-bottom:1px solid var(--border2);margin-bottom:
 .error-msg{background:var(--red-dim);border:1px solid var(--red);border-radius:var(--radius);padding:12px 16px;font-family:var(--mono);font-size:11px;color:var(--red);display:none;margin-bottom:16px;}
 .error-msg.active{display:block;}
 
+/* ── History ── */
+.history-list{max-height:420px;overflow-y:auto;}
+.history-item{background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:14px 16px;margin-bottom:10px;transition:border-color .15s;}
+.history-item:hover{border-color:var(--border);}
+.history-item-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:10px;}
+.history-item-name{font-size:14px;font-weight:700;flex:1;}
+.history-item-meta{font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:8px;}
+.history-item-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.hist-btn{font-family:var(--mono);font-size:10px;padding:5px 12px;border-radius:4px;cursor:pointer;border:1px solid;transition:all .15s;}
+.hist-btn-view{border-color:var(--border2);color:var(--text2);background:transparent;}
+.hist-btn-view:hover{border-color:var(--blue);color:var(--blue);}
+.hist-btn-paid{border-color:var(--green);color:var(--green);background:transparent;}
+.hist-btn-paid:hover{background:var(--green-dim);}
+.hist-btn-del{border-color:var(--border2);color:var(--text3);background:transparent;}
+.hist-btn-del:hover{border-color:var(--red);color:var(--red);}
+.status-badge{font-family:var(--mono);font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;letter-spacing:.5px;}
+.status-unpaid{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber);}
+.status-paid{background:var(--green-dim);color:var(--green);border:1px solid var(--green);}
+.history-empty{text-align:center;padding:32px;font-family:var(--mono);font-size:12px;color:var(--text3);}
+
 /* ── Modal ── */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:100;align-items:center;justify-content:center;}
 .modal-overlay.open{display:flex;}
@@ -183,7 +203,10 @@ header{padding:36px 0 28px;border-bottom:1px solid var(--border2);margin-bottom:
       <div class="logo-sub">Website Security Auditor</div>
     </div>
   </div>
+  <div style="display:flex;gap:8px;">
+  <button class="settings-btn" onclick="openHistoryModal()" style="border-color:var(--green);color:var(--green);">Invoice History</button>
   <button class="settings-btn" onclick="toggleSettings()">API Keys</button>
+</div>
 </header>
 
 <div class="settings-panel" id="settingsPanel">
@@ -263,6 +286,46 @@ header{padding:36px 0 28px;border-bottom:1px solid var(--border2);margin-bottom:
     <button class="export-btn" onclick="copyReport()">Copy Text</button>
     <button class="export-btn" onclick="resetTool()">New Audit</button>
   </div>
+
+<!-- History Modal -->
+<div class="modal-overlay" id="historyModal">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-title">Invoice History</div>
+    <div class="modal-sub">Track payments · Mark as paid · Regenerate invoices</div>
+    <div class="history-list" id="historyList"></div>
+    <div class="modal-actions" style="margin-top:12px;">
+      <button class="modal-btn secondary" onclick="closeModal('historyModal')">Close</button>
+      <button class="modal-btn primary" style="background:var(--red);max-width:160px;" onclick="clearHistory()">Clear All</button>
+    </div>
+  </div>
+</div>
+
+<!-- Mark Paid Modal -->
+<div class="modal-overlay" id="paidModal">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-title">Mark as Paid</div>
+    <div class="modal-sub">Add payment confirmation details</div>
+    <div class="modal-grid">
+      <div class="modal-field full">
+        <label>Payment Date</label>
+        <input type="date" id="paid_date">
+      </div>
+      <div class="modal-field full">
+        <label>Received By</label>
+        <input type="text" id="paid_signatory" placeholder="Your full name">
+      </div>
+      <div class="modal-field full">
+        <label>Payment Method (optional)</label>
+        <input type="text" id="paid_method" placeholder="e.g. Bank Transfer, Cash">
+      </div>
+    </div>
+    <div class="generating-msg" id="paidGenerating" style="display:none;">Generating paid invoice...</div>
+    <div class="modal-actions">
+      <button class="modal-btn secondary" onclick="closeModal('paidModal')">Cancel</button>
+      <button class="modal-btn primary" id="paidConfirmBtn" onclick="confirmPaid()" style="background:var(--green);color:#000;">Confirm & Download</button>
+    </div>
+  </div>
+</div>
 
 <!-- Outreach Modal -->
 <div class="modal-overlay" id="outreachModal">
@@ -907,6 +970,8 @@ async function downloadInvoice() {
     a.href = URL.createObjectURL(blob);
     a.download = `Atlas_Securecheck_Invoice_${payload.invoice_number}.pdf`;
     a.click();
+    // Save to history
+    saveInvoiceToHistory(payload, 'unpaid');
     closeModal('invoiceModal');
   } catch(e) {
     alert('Download failed — check your connection.');
@@ -926,6 +991,162 @@ function formatDate(iso) {
 document.getElementById('reportModal').addEventListener('click', e => { if (e.target.id === 'reportModal') closeModal('reportModal'); });
 document.getElementById('invoiceModal').addEventListener('click', e => { if (e.target.id === 'invoiceModal') closeModal('invoiceModal'); });
 document.getElementById('outreachModal').addEventListener('click', e => { if (e.target.id === 'outreachModal') closeModal('outreachModal'); });
+document.getElementById('historyModal').addEventListener('click', e => { if (e.target.id === 'historyModal') closeModal('historyModal'); });
+document.getElementById('paidModal').addEventListener('click', e => { if (e.target.id === 'paidModal') closeModal('paidModal'); });
+
+// ── Invoice History System ─────────────────────────────────────────────────
+const HISTORY_KEY = 'atlas_invoice_history';
+let currentPaidId = null;
+
+function getHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; }
+}
+function saveHistory(history) {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+}
+
+function saveInvoiceToHistory(payload, status='unpaid') {
+  const history = getHistory();
+  const entry = {
+    id: Date.now().toString(),
+    created_at: new Date().toISOString(),
+    status,
+    ...payload,
+  };
+  history.unshift(entry); // newest first
+  saveHistory(history);
+  return entry.id;
+}
+
+function openHistoryModal() {
+  renderHistory();
+  document.getElementById('historyModal').classList.add('open');
+}
+
+function renderHistory() {
+  const history = getHistory();
+  const list = document.getElementById('historyList');
+
+  if (!history.length) {
+    list.innerHTML = '<div class="history-empty">No invoices yet.<br>Generate your first invoice after a scan.</div>';
+    return;
+  }
+
+  const PLANS = {
+    basic:   { name:'Basic Audit',       price:'N40,000' },
+    full:    { name:'Full Audit',         price:'N100,000' },
+    monthly: { name:'Monthly Monitoring', price:'N50,000/mo' },
+  };
+
+  list.innerHTML = history.map(entry => {
+    const plan = PLANS[entry.plan] || { name: entry.plan, price: '' };
+    const date = entry.issue_date || entry.created_at?.split('T')[0] || '';
+    const isPaid = entry.status === 'paid';
+    return `
+      <div class="history-item" id="hitem_${entry.id}">
+        <div class="history-item-top">
+          <div class="history-item-name">${entry.biz_name || 'Unknown Client'}</div>
+          <span class="status-badge ${isPaid ? 'status-paid' : 'status-unpaid'}">${isPaid ? 'PAID' : 'UNPAID'}</span>
+        </div>
+        <div class="history-item-meta">
+          ${plan.name} · ${plan.price} · Invoice ${entry.invoice_number || 'N/A'} · ${date}
+          ${isPaid && entry.paid_date ? `<br>Paid on ${entry.paid_date} · Received by ${entry.paid_signatory || '—'}` : ''}
+        </div>
+        <div class="history-item-actions">
+          <button class="hist-btn hist-btn-view" onclick="redownloadInvoice('${entry.id}')">↓ Download</button>
+          ${!isPaid ? `<button class="hist-btn hist-btn-paid" onclick="openPaidModal('${entry.id}')">✓ Mark Paid</button>` : `<button class="hist-btn hist-btn-paid" onclick="redownloadPaidInvoice('${entry.id}')">↓ Paid PDF</button>`}
+          <button class="hist-btn hist-btn-del" onclick="deleteInvoice('${entry.id}')">✕ Delete</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function deleteInvoice(id) {
+  if (!confirm('Delete this invoice from history?')) return;
+  const history = getHistory().filter(e => e.id !== id);
+  saveHistory(history);
+  renderHistory();
+}
+
+function clearHistory() {
+  if (!confirm('Clear all invoice history? This cannot be undone.')) return;
+  localStorage.removeItem(HISTORY_KEY);
+  renderHistory();
+}
+
+async function redownloadInvoice(id) {
+  const entry = getHistory().find(e => e.id === id);
+  if (!entry) return;
+  await _downloadInvoicePDF(entry, false);
+}
+
+async function redownloadPaidInvoice(id) {
+  const entry = getHistory().find(e => e.id === id);
+  if (!entry) return;
+  await _downloadInvoicePDF(entry, true);
+}
+
+function openPaidModal(id) {
+  currentPaidId = id;
+  document.getElementById('paid_date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('paid_signatory').value = localStorage.getItem('atlas_auditor') || '';
+  document.getElementById('paid_method').value = '';
+  document.getElementById('paidModal').classList.add('open');
+}
+
+async function confirmPaid() {
+  if (!currentPaidId) return;
+  const btn = document.getElementById('paidConfirmBtn');
+  const msg = document.getElementById('paidGenerating');
+  btn.disabled = true;
+  msg.style.display = 'block';
+
+  const paidDate = formatDate(document.getElementById('paid_date').value);
+  const signatory = document.getElementById('paid_signatory').value || 'Atlas Securecheck';
+  const method = document.getElementById('paid_method').value;
+
+  // Update history entry
+  const history = getHistory();
+  const idx = history.findIndex(e => e.id === currentPaidId);
+  if (idx !== -1) {
+    history[idx].status = 'paid';
+    history[idx].paid_date = paidDate;
+    history[idx].paid_signatory = signatory;
+    history[idx].paid_method = method;
+    saveHistory(history);
+    await _downloadInvoicePDF(history[idx], true);
+  }
+
+  btn.disabled = false;
+  msg.style.display = 'none';
+  closeModal('paidModal');
+  renderHistory();
+}
+
+async function _downloadInvoicePDF(entry, isPaid) {
+  const payload = {
+    ...entry,
+    is_paid: isPaid,
+    paid_date: entry.paid_date || '',
+    paid_signatory: entry.paid_signatory || '',
+    paid_method: entry.paid_method || '',
+  };
+  try {
+    const resp = await fetch('/api/generate-invoice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30000)
+    });
+    if (!resp.ok) { alert('Download failed.'); return; }
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const status = isPaid ? 'PAID' : 'UNPAID';
+    a.download = `Atlas_Invoice_${entry.invoice_number || entry.id}_${status}.pdf`;
+    a.click();
+  } catch(e) { alert('Download failed — check connection.'); }
+}
 
 // ── Outreach modal ─────────────────────────────────────────────────────────
 function openOutreachModal() {
