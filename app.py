@@ -503,23 +503,57 @@ class Divider(Flowable):
         self.canv.setFillColor(self.divColor)
         self.canv.rect(0, 3, self.width, self.height, fill=1, stroke=0)
 
+def make_bg_page(watermark_text="ATLAS SECURECHECK", paid_stamp=False):
+    """Returns a page callback with watermark and optional PAID stamp."""
+    def bg_page(canvas, doc):
+        canvas.saveState()
+        canvas.setFillColor(WHITE)
+        canvas.rect(0, 0, W, H, fill=1, stroke=0)
+
+        # ── Diagonal watermark ──
+        canvas.saveState()
+        canvas.setFillColor(colors.HexColor('#00875a'))
+        canvas.setFont('Helvetica-Bold', 52)
+        canvas.setFillAlpha(0.04)
+        canvas.translate(W/2, H/2)
+        canvas.rotate(45)
+        text_w = canvas.stringWidth(watermark_text, 'Helvetica-Bold', 52)
+        for dy in [-260, -130, 0, 130, 260]:
+            canvas.drawCentredString(0, dy, watermark_text)
+        canvas.restoreState()
+
+        # ── PAID stamp ──
+        if paid_stamp:
+            canvas.saveState()
+            canvas.setStrokeColor(colors.HexColor('#00875a'))
+            canvas.setFillColor(colors.HexColor('#00875a'))
+            canvas.setFont('Helvetica-Bold', 72)
+            canvas.setFillAlpha(0.12)
+            canvas.setStrokeAlpha(0.12)
+            canvas.translate(W * 0.72, H * 0.35)
+            canvas.rotate(-30)
+            canvas.rect(-85, -30, 170, 60, fill=0, stroke=1)
+            canvas.drawCentredString(0, -18, 'PAID')
+            canvas.restoreState()
+
+        # Top accent bar
+        canvas.setFillColor(GREEN)
+        canvas.rect(0, H - 5, W, 5, fill=1, stroke=0)
+        # Footer
+        canvas.setFillColor(SURFACE)
+        canvas.rect(0, 0, W, 16*mm, fill=1, stroke=0)
+        canvas.setFillColor(INK3)
+        canvas.setFont('Helvetica', 7)
+        canvas.drawString(22*mm, 6*mm, 'Atlas Securecheck  ·  Confidential')
+        canvas.setFillColor(GREEN)
+        canvas.setFont('Helvetica-Bold', 8)
+        canvas.drawRightString(W - 22*mm, 6*mm, f'Page {doc.page}')
+        canvas.restoreState()
+    return bg_page
+
+# Keep backward-compatible alias
 def bg_page(canvas, doc):
-    canvas.saveState()
-    canvas.setFillColor(WHITE)
-    canvas.rect(0, 0, W, H, fill=1, stroke=0)
-    # Top accent bar
-    canvas.setFillColor(GREEN)
-    canvas.rect(0, H - 5, W, 5, fill=1, stroke=0)
-    # Footer
-    canvas.setFillColor(SURFACE)
-    canvas.rect(0, 0, W, 16*mm, fill=1, stroke=0)
-    canvas.setFillColor(INK3)
-    canvas.setFont('Helvetica', 7)
-    canvas.drawString(22*mm, 6*mm, 'Atlas Securecheck  ·  Confidential')
-    canvas.setFillColor(GREEN)
-    canvas.setFont('Helvetica-Bold', 8)
-    canvas.drawRightString(W - 22*mm, 6*mm, f'Page {doc.page}')
-    canvas.restoreState()
+    make_bg_page()(canvas, doc)
 
 PLANS = {
     'basic':   {'name': 'Basic Audit',            'price': 'N40,000',       'checks': 5,  'desc': '5-point security check covering critical vulnerabilities'},
@@ -731,6 +765,7 @@ def generate_report():
         Paragraph(f'Prepared by: <b>{auditor}</b><br/>Audit date: {audit_date}<br/>Report type: {plan["name"]} ({plan["checks"]}-point audit)', S('fi', fontName='Helvetica', fontSize=9, leading=14, textColor=INK3)),
         Paragraph(f'<b>{plan["price"]}</b><br/><font size=8 color="#6b7280">Service fee</font>', S('fp', fontName='Helvetica-Bold', fontSize=18, textColor=INK, alignment=TA_RIGHT, leading=22)),
     ]]
+    # Note: URL excluded intentionally to protect service identity
     # Note: Tool URL intentionally excluded from report
     footer_tbl = Table(footer_data, colWidths=[PW * 0.6, PW * 0.4])
     footer_tbl.setStyle(TableStyle([
@@ -983,6 +1018,10 @@ def generate_invoice():
     account_name   = d.get("account_name", "")
     account_number = d.get("account_number", "")
     notes          = d.get("notes", "")
+    is_paid        = d.get("is_paid", False)
+    paid_date      = d.get("paid_date", "")
+    paid_signatory = d.get("paid_signatory", "")
+    paid_method    = d.get("paid_method", "")
 
     plan = PLANS.get(plan_key, PLANS["full"])
     price_str = plan["price"].replace("N", "").replace(",", "").replace("/month", "").strip()
@@ -1000,11 +1039,13 @@ def generate_invoice():
     story.append(Spacer(1, 8*mm))
 
     # Header
+    status_text = "PAID" if is_paid else "INVOICE"
+    status_color = GREEN if is_paid else INK
     hdr_data = [[
         Paragraph('<b>AS</b>', S('lg', fontName='Helvetica-Bold', fontSize=16, textColor=GREEN, alignment=TA_CENTER)),
         [Paragraph('<b>Atlas Securecheck</b>', S('ln', fontName='Helvetica-Bold', fontSize=22, textColor=INK, leading=26)),
          Paragraph('Website Security Auditing Services', S('ls', fontName='Helvetica', fontSize=10, textColor=INK3))],
-        Paragraph('INVOICE', S('inv', fontName='Helvetica-Bold', fontSize=28, textColor=GREEN, alignment=TA_RIGHT, leading=32)),
+        Paragraph(f'<b>{status_text}</b>', S('inv', fontName='Helvetica-Bold', fontSize=28, textColor=status_color, alignment=TA_RIGHT, leading=32)),
     ]]
     hdr_tbl = Table(hdr_data, colWidths=[14*mm, PW*0.55, PW*0.38])
     hdr_tbl.setStyle(TableStyle([
@@ -1013,10 +1054,11 @@ def generate_invoice():
         ('BOX', (0,0), (0,0), 1.5, GREEN),
     ]))
     story.append(hdr_tbl)
-    story.append(Divider(GREEN, 3))
+    story.append(Divider(GREEN if not is_paid else colors.HexColor('#00875a'), 3))
     story.append(Spacer(1, 6*mm))
 
     # Invoice meta + Bill To
+    current_status = f'<font color="#00875a"><b>PAID</b></font>' if is_paid else f'<font color="#b45309"><b>UNPAID</b></font>'
     meta_data = [[
         [Paragraph('<b>BILL TO</b>', S('bt', fontName='Helvetica-Bold', fontSize=9, textColor=INK3, letterSpacing=1)),
          Spacer(1, 2*mm),
@@ -1028,7 +1070,7 @@ def generate_invoice():
          Paragraph(f'<b>Invoice No:</b>  {invoice_number}', S('im', fontName='Helvetica', fontSize=10, textColor=INK2, leading=16)),
          Paragraph(f'<b>Issue Date:</b>  {issue_date}', S('im2', fontName='Helvetica', fontSize=10, textColor=INK2, leading=16)),
          Paragraph(f'<b>Due Date:</b>    {due_date}', S('im3', fontName='Helvetica', fontSize=10, textColor=INK2, leading=16)),
-         Paragraph(f'<b>Status:</b>        <font color="#b45309">UNPAID</font>', S('im4', fontName='Helvetica', fontSize=10, textColor=INK2, leading=16))],
+         Paragraph(f'<b>Status:</b>        {current_status}', S('im4', fontName='Helvetica', fontSize=10, textColor=INK2, leading=16))],
     ]]
     meta_tbl = Table(meta_data, colWidths=[PW*0.5, PW*0.5])
     meta_tbl.setStyle(TableStyle([
@@ -1056,61 +1098,101 @@ def generate_invoice():
         Paragraph('1', S('sq', fontName='Helvetica', fontSize=11, textColor=INK2, alignment=TA_CENTER)),
         Paragraph(f'<b>{plan["price"]}</b>', S('sa', fontName='Helvetica-Bold', fontSize=13, textColor=INK, alignment=TA_RIGHT)),
     ]
-    subtotal_row = [
-        Paragraph('Subtotal', S('sub', fontName='Helvetica', fontSize=10, textColor=INK3)),
-        '',
-        Paragraph(plan["price"], S('subv', fontName='Helvetica', fontSize=10, textColor=INK2, alignment=TA_RIGHT)),
-    ]
+    total_bg = colors.HexColor('#e6f5f0') if is_paid else GREEN_BG
     total_row = [
-        Paragraph('<b>TOTAL DUE</b>', S('tot', fontName='Helvetica-Bold', fontSize=13, textColor=INK)),
+        Paragraph('<b>TOTAL</b>', S('tot', fontName='Helvetica-Bold', fontSize=13, textColor=INK)),
         '',
         Paragraph(f'<b>{plan["price"]}</b>', S('totv', fontName='Helvetica-Bold', fontSize=16, textColor=GREEN, alignment=TA_RIGHT)),
     ]
 
     svc_tbl = Table(
-        [svc_header, svc_row, subtotal_row, total_row],
+        [svc_header, svc_row, total_row],
         colWidths=[PW*0.6, PW*0.15, PW*0.25]
     )
     svc_tbl.setStyle(TableStyle([
-        ('BACKGROUND',    (0,0), (-1,0), DARK),
+        ('BACKGROUND',    (0,0), (-1,0), colors.HexColor('#0f1117')),
         ('TOPPADDING',    (0,0), (-1,-1), 10),
         ('BOTTOMPADDING', (0,0), (-1,-1), 10),
         ('LEFTPADDING',   (0,0), (-1,-1), 10),
         ('RIGHTPADDING',  (0,0), (-1,-1), 10),
         ('VALIGN',        (0,0), (-1,-1), 'MIDDLE'),
         ('ROWBACKGROUNDS',(0,1), (-1,1), [SURFACE]),
-        ('LINEBELOW',     (0,2), (-1,2), 0.5, colors.HexColor('#e2e0da')),
-        ('BACKGROUND',    (0,3), (-1,3), GREEN_BG),
+        ('BACKGROUND',    (0,2), (-1,2), total_bg),
         ('BOX',           (0,0), (-1,-1), 0.5, colors.HexColor('#e2e0da')),
         ('INNERGRID',     (0,0), (-1,-1), 0.25, colors.HexColor('#e2e0da')),
     ]))
     story.append(svc_tbl)
     story.append(Spacer(1, 8*mm))
 
-    # Payment details
-    story.append(Paragraph('PAYMENT DETAILS', S('sh', fontName='Helvetica-Bold', fontSize=9, textColor=INK3, letterSpacing=1.5)))
-    story.append(Spacer(1, 2*mm))
-    pay_data = [
-        [Paragraph('Bank Name', S('pk', fontName='Helvetica', fontSize=10, textColor=INK3)),
-         Paragraph(f'<b>{bank_name}</b>', S('pv', fontName='Helvetica-Bold', fontSize=10, textColor=INK))],
-        [Paragraph('Account Name', S('pk2', fontName='Helvetica', fontSize=10, textColor=INK3)),
-         Paragraph(f'<b>{account_name}</b>', S('pv2', fontName='Helvetica-Bold', fontSize=10, textColor=INK))],
-        [Paragraph('Account Number', S('pk3', fontName='Helvetica', fontSize=10, textColor=INK3)),
-         Paragraph(f'<b>{account_number}</b>', S('pv3', fontName='Helvetica-Bold', fontSize=14, textColor=GREEN))],
-    ]
-    pay_tbl = Table(pay_data, colWidths=[PW*0.35, PW*0.65])
-    pay_tbl.setStyle(TableStyle([
-        ('BACKGROUND',    (0,0), (-1,-1), SURFACE),
-        ('ROWBACKGROUNDS',(0,0), (-1,-1), [SURFACE, WHITE]),
-        ('TOPPADDING',    (0,0), (-1,-1), 8),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 8),
-        ('LEFTPADDING',   (0,0), (-1,-1), 12),
-        ('RIGHTPADDING',  (0,0), (-1,-1), 12),
-        ('BOX',           (0,0), (-1,-1), 0.5, colors.HexColor('#e2e0da')),
-        ('INNERGRID',     (0,0), (-1,-1), 0.25, colors.HexColor('#e2e0da')),
-        ('LINEAFTER',     (0,0), (0,-1), 0.5, colors.HexColor('#e2e0da')),
-    ]))
-    story.append(pay_tbl)
+    # Payment details (only show if unpaid)
+    if not is_paid:
+        story.append(Paragraph('PAYMENT DETAILS', S('sh', fontName='Helvetica-Bold', fontSize=9, textColor=INK3, letterSpacing=1.5)))
+        story.append(Spacer(1, 2*mm))
+        pay_data = [
+            [Paragraph('Bank Name', S('pk', fontName='Helvetica', fontSize=10, textColor=INK3)),
+             Paragraph(f'<b>{bank_name}</b>', S('pv', fontName='Helvetica-Bold', fontSize=10, textColor=INK))],
+            [Paragraph('Account Name', S('pk2', fontName='Helvetica', fontSize=10, textColor=INK3)),
+             Paragraph(f'<b>{account_name}</b>', S('pv2', fontName='Helvetica-Bold', fontSize=10, textColor=INK))],
+            [Paragraph('Account Number', S('pk3', fontName='Helvetica', fontSize=10, textColor=INK3)),
+             Paragraph(f'<b>{account_number}</b>', S('pv3', fontName='Helvetica-Bold', fontSize=14, textColor=GREEN))],
+        ]
+        pay_tbl = Table(pay_data, colWidths=[PW*0.35, PW*0.65])
+        pay_tbl.setStyle(TableStyle([
+            ('BACKGROUND',    (0,0), (-1,-1), SURFACE),
+            ('ROWBACKGROUNDS',(0,0), (-1,-1), [SURFACE, WHITE]),
+            ('TOPPADDING',    (0,0), (-1,-1), 8),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+            ('LEFTPADDING',   (0,0), (-1,-1), 12),
+            ('RIGHTPADDING',  (0,0), (-1,-1), 12),
+            ('BOX',           (0,0), (-1,-1), 0.5, colors.HexColor('#e2e0da')),
+            ('INNERGRID',     (0,0), (-1,-1), 0.25, colors.HexColor('#e2e0da')),
+            ('LINEAFTER',     (0,0), (0,-1), 0.5, colors.HexColor('#e2e0da')),
+        ]))
+        story.append(pay_tbl)
+
+    # Payment confirmation (only show if paid)
+    if is_paid and paid_date:
+        story.append(Paragraph('PAYMENT CONFIRMATION', S('sh', fontName='Helvetica-Bold', fontSize=9, textColor=INK3, letterSpacing=1.5)))
+        story.append(Spacer(1, 2*mm))
+        confirm_data = [
+            [Paragraph('Date Received', S('ck', fontName='Helvetica', fontSize=10, textColor=INK3)),
+             Paragraph(f'<b>{paid_date}</b>', S('cv', fontName='Helvetica-Bold', fontSize=10, textColor=INK))],
+            [Paragraph('Payment Method', S('ck2', fontName='Helvetica', fontSize=10, textColor=INK3)),
+             Paragraph(f'<b>{paid_method or "Bank Transfer"}</b>', S('cv2', fontName='Helvetica-Bold', fontSize=10, textColor=INK))],
+        ]
+        confirm_tbl = Table(confirm_data, colWidths=[PW*0.35, PW*0.65])
+        confirm_tbl.setStyle(TableStyle([
+            ('BACKGROUND',    (0,0), (-1,-1), colors.HexColor('#e6f5f0')),
+            ('TOPPADDING',    (0,0), (-1,-1), 8),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+            ('LEFTPADDING',   (0,0), (-1,-1), 12),
+            ('RIGHTPADDING',  (0,0), (-1,-1), 12),
+            ('BOX',           (0,0), (-1,-1), 1, GREEN),
+            ('INNERGRID',     (0,0), (-1,-1), 0.25, colors.HexColor('#e2e0da')),
+        ]))
+        story.append(confirm_tbl)
+        story.append(Spacer(1, 6*mm))
+
+        # Signature block
+        story.append(Paragraph('AUTHORISED BY', S('sh', fontName='Helvetica-Bold', fontSize=9, textColor=INK3, letterSpacing=1.5)))
+        story.append(Spacer(1, 2*mm))
+        sig_data = [[
+            [Spacer(1, 10*mm),
+             Paragraph('_' * 35, S('sl', fontName='Helvetica', fontSize=10, textColor=INK2)),
+             Paragraph(f'<b>{paid_signatory}</b>', S('sn', fontName='Helvetica-Bold', fontSize=11, textColor=INK, leading=14)),
+             Paragraph('Atlas Securecheck', S('st', fontName='Helvetica', fontSize=9, textColor=INK3)),
+             Paragraph(paid_date, S('sd2', fontName='Helvetica', fontSize=9, textColor=INK3))],
+            Paragraph('Payment received in full.\nThank you for your business.', S('ty', fontName='Helvetica', fontSize=10, leading=16, textColor=GREEN, alignment=TA_RIGHT)),
+        ]]
+        sig_tbl = Table(sig_data, colWidths=[PW*0.55, PW*0.45])
+        sig_tbl.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'BOTTOM'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ]))
+        story.append(sig_tbl)
 
     if notes:
         story.append(Spacer(1, 6*mm))
@@ -1126,15 +1208,17 @@ def generate_invoice():
     if auditor_email: contact_parts.append(auditor_email)
     if auditor_phone: contact_parts.append(auditor_phone)
     story.append(Paragraph('  ·  '.join(contact_parts), S('cf', fontName='Helvetica', fontSize=9, textColor=INK3, alignment=TA_CENTER)))
-    # Note: Tool URL intentionally excluded from invoice
 
-    doc.build(story, onFirstPage=bg_page, onLaterPages=bg_page)
+    # Use watermark-aware page callback
+    page_cb = make_bg_page(watermark_text="ATLAS SECURECHECK", paid_stamp=is_paid)
+    doc.build(story, onFirstPage=page_cb, onLaterPages=page_cb)
     buf.seek(0)
 
     from flask import send_file
+    status_suffix = "_PAID" if is_paid else ""
     return send_file(buf, mimetype='application/pdf',
                      as_attachment=True,
-                     download_name=f"Atlas_Securecheck_Invoice_{invoice_number}.pdf")
+                     download_name=f"Atlas_Securecheck_Invoice_{invoice_number}{status_suffix}.pdf")
 
 
 if __name__ == "__main__":
